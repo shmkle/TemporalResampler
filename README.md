@@ -1,4 +1,7 @@
-# TemporalResampler Plugin for [OpenTabletDriver](https://github.com/OpenTabletDriver/OpenTabletDriver) [![](https://img.shields.io/github/downloads/shmkle/TemporalResampler/total.svg)](https://github.com/shmkle/TemporalResampler/releases/latest)
+# TemporalResampler Plugin
+
+# Meant for [OpenTabletDriver](https://github.com/OpenTabletDriver/OpenTabletDriver)
+ [![](https://img.shields.io/github/downloads/shmkle/TemporalResampler/total.svg)](https://github.com/shmkle/TemporalResampler/releases/latest)
 
 ### The purpose:
 Improves cursor clarity for higher refresh rate monitors with minimal to zero latency. It is very effective if your tablet Reports at 133 and your monitor Updates at 240hz.
