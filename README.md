@@ -2,7 +2,7 @@
 
 [![](https://img.shields.io/github/downloads/shmkle/TemporalResampler/total.svg)](https://github.com/shmkle/TemporalResampler/releases/latest)
 
-*Meant for [OpenTabletDriver](https://github.com/OpenTabletDriver/OpenTabletDriver)
+*Meant for [OpenTabletDriver](https://github.com/OpenTabletDriver/OpenTabletDriver)*
 
 
 ### The purpose:
