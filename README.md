@@ -23,7 +23,8 @@ Improves cursor clarity for higher refresh rate monitors with minimal to zero la
     1.0 == no effect
     lower == adds more or removes more smoothing
     
-**Reverse EMA:**         
-    
+**Reverse EMA:**   
+
+    Default: false
     false == uses EMA smoothing. adds latency, smooth cursor
     true == uses reverse EMA smoothing. can reverse hardware smoothing, snappy cursor
