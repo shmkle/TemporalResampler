@@ -4,6 +4,7 @@ using OpenTabletDriver.Plugin.Output;
 using OpenTabletDriver.Plugin.Tablet;
 using OpenTabletDriver.Plugin.Timing;
 using System.Numerics;
+using System.Runtime.Intrinsics.X86;
 
 
 [PluginName("Temporal Resampler"), DeviceHub()]
@@ -18,9 +19,9 @@ public class TemporalResampler : AsyncPositionedPipelineElement<IDeviceReport>
     [Property("Frame Time Shift"), DefaultPropertyValue(0.5f), ToolTip
 (
     "Default: 0.5\n\n" +
-    "Shifts the time to add or remove predicted points. Recomended values: 0.0 - 1.0, any values beyond this would be counterintuitive and buggy.\n" +
-    "0.0 == 0% predicted, one frame of latency, beutiful lines\n" +
-    "0.5 == 50% predicted, half frame of latency, resonable lines\n" +
+    "Shifts the time to add or remove predicted points. Recommended values: 0.0 - 1.0, any values beyond this would be counterintuitive and buggy.\n" +
+    "0.0 == 0% predicted, one frame of latency, beautiful lines\n" +
+    "0.5 == 50% predicted, half frame of latency, reasonable lines\n" +
     "1.0 == 100% predicted, no latency, ugly lines. it works well if you have any smoothing"
 )]
     public float frameShift { set; get; }
@@ -37,6 +38,7 @@ public class TemporalResampler : AsyncPositionedPipelineElement<IDeviceReport>
     [Property("Reverse EMA"), DefaultPropertyValue(false), ToolTip
     (
         "Default: false\n\n" +
+        "Determines if EMA smoothing is added or removed" +
         "false == uses EMA smoothing. adds latency, smooth cursor\n" +
         "true == uses reverse EMA smoothing. can reverses hardware smoothing, snappy cursor"
     )]
