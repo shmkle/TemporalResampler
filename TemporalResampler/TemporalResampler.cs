@@ -38,7 +38,7 @@ public class TemporalResampler : AsyncPositionedPipelineElement<IDeviceReport>
     [Property("Reverse EMA"), DefaultPropertyValue(false), ToolTip
     (
         "Default: false\n\n" +
-        "Determines if EMA smoothing is added or removed" +
+        "Determines if EMA smoothing is added or removed\n" +
         "false == uses EMA smoothing. adds latency, smooth cursor\n" +
         "true == uses reverse EMA smoothing. can reverses hardware smoothing, snappy cursor"
     )]
