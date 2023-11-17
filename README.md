@@ -5,12 +5,14 @@ Improves cursor clarity for higher refresh rate monitors with minimal to zero la
 
 ### The Values:
 
-**Frame Time Shift:** Shifts the time to add or remove predicted points. Default: 0.5, Recommended values: 0.0 - 1.0, any values beyond this would be counterintuitive and buggy
+**Frame Time Shift:** 
+    Shifts the time to add or remove predicted points. Default: 0.5, Recommended values: 0.0 - 1.0, any values beyond this would be counterintuitive and buggy
     0.0 == 0% predicted, one frame of latency, beautiful lines
     0.5 == 50% predicted, half frame of latency, reasonable lines
     1.0 == 100% predicted, no latency, ugly lines. it works well if you have any smoothing
     
-**EMA Weight:** Adds or removes smoothing. Default: 1.0, Range: 0.0 - 1.0
+**EMA Weight:** 
+    Adds or removes smoothing. Default: 1.0, Range: 0.0 - 1.0
     1.0 == no effect
     lower == adds more or removes more smoothing
     
