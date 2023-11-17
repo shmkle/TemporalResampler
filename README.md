@@ -5,7 +5,7 @@ Improves cursor clarity for higher refresh rate monitors with minimal to zero la
 
 ### The Values:
 
-**Frame Time Shift:** 
+**Frame Time Shift:**
     Shifts the time to add or remove predicted points. Default: 0.5, Recommended values: 0.0 - 1.0, any values beyond this would be counterintuitive and buggy
     0.0 == 0% predicted, one frame of latency, beautiful lines
     0.5 == 50% predicted, half frame of latency, reasonable lines
