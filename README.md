@@ -6,7 +6,7 @@
 
 
 ### The purpose:
-Improves cursor clarity for higher refresh rate monitors with minimal to zero latency. It is very effective if your tablet Reports at 133 and your monitor Updates at 240hz.
+Improves cursor clarity for higher refresh rate monitors with minimal to zero latency. It is very effective if your tablet Reports at 133rps and your monitor Updates at 240hz.
 
 ### The Values:
 
