@@ -27,4 +27,4 @@ Improves cursor clarity for higher refresh rate monitors with minimal to zero la
 
     Determines if EMA smoothing is added or removed. Default: false
     false == uses EMA smoothing. adds latency, smooth cursor
-    true == uses reverse EMA smoothing. can reverse hardware smoothing, snappy cursor
+    true == uses reverse EMA smoothing. can reverse hardware smoothing, snappy cursor. follow the guidelines given in the [Recontructer](https://github.com/X9VoiD/VoiDPlugins/wiki/Reconstructor) wiki to find the appropriate value
