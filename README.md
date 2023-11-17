@@ -29,4 +29,4 @@ lower == adds more or removes more smoothing
 
 Determines if EMA smoothing is added or removed. Default: false
 false == uses EMA smoothing. adds latency, smooth cursor
-true == uses reverse EMA smoothing. can reverse hardware smoothing, snappy cursor. follow the guidelines given in the wiki [Recontructer](https://github.com/X9VoiD/VoiDPlugins/wiki/Reconstructor) to find the appropriate value
+true == uses reverse EMA smoothing. can reverse hardware smoothing, snappy cursor. follow the guidelines given in the [Recontructer](https://github.com/X9VoiD/VoiDPlugins/wiki/Reconstructor) wiki to find the appropriate value
