@@ -1,10 +1,8 @@
-using OpenTabletDriver.Plugin;
 using OpenTabletDriver.Plugin.Attributes;
 using OpenTabletDriver.Plugin.Output;
 using OpenTabletDriver.Plugin.Tablet;
 using OpenTabletDriver.Plugin.Timing;
 using System.Numerics;
-using System.Runtime.Intrinsics.X86;
 
 
 [PluginName("Temporal Resampler"), DeviceHub()]
@@ -14,7 +12,7 @@ public class TemporalResampler : AsyncPositionedPipelineElement<IDeviceReport>
     {
     }
 
-    public override PipelinePosition Position => PipelinePosition.PostTransform;
+    public override PipelinePosition Position => PipelinePosition.Raw;
 
     [Property("Frame Time Shift"), DefaultPropertyValue(0.5f), ToolTip
 (
