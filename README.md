@@ -6,7 +6,7 @@
 
 
 ### The purpose:
-Improves cursor clarity for higher refresh rate monitors with minimal to zero latency. It is very effective if your tablet reports at 133rps (ctl-472, ctl-672) and your monitor updates at 240hz.
+Improves cursor clarity for higher refresh rate monitors with minimal latency. It is very effective if your tablet reports at 133rps (ctl-472, ctl-672) and your monitor updates at 240hz.
 
 ### The Values:
 
