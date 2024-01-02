@@ -1,9 +1,9 @@
-﻿
+
 Microsoft Visual Studio Solution File, Format Version 12.00
 # Visual Studio Version 17
 VisualStudioVersion = 17.7.34221.43
 MinimumVisualStudioVersion = 10.0.40219.1
-Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "TemporalResampler", "TemporalResampler.csproj", "{168D8C81-31EE-444E-949F-05098570D9EB}"
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "TemporalResampler", "TemporalResampler.csproj", "{748A91CC-AC28-4A77-887E-672660490630}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
@@ -11,15 +11,15 @@ Global
 		Release|Any CPU = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(ProjectConfigurationPlatforms) = postSolution
-		{168D8C81-31EE-444E-949F-05098570D9EB}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
-		{168D8C81-31EE-444E-949F-05098570D9EB}.Debug|Any CPU.Build.0 = Debug|Any CPU
-		{168D8C81-31EE-444E-949F-05098570D9EB}.Release|Any CPU.ActiveCfg = Release|Any CPU
-		{168D8C81-31EE-444E-949F-05098570D9EB}.Release|Any CPU.Build.0 = Release|Any CPU
+		{748A91CC-AC28-4A77-887E-672660490630}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{748A91CC-AC28-4A77-887E-672660490630}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{748A91CC-AC28-4A77-887E-672660490630}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{748A91CC-AC28-4A77-887E-672660490630}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
 	EndGlobalSection
 	GlobalSection(ExtensibilityGlobals) = postSolution
-		SolutionGuid = {753CB6E5-F22B-4CA2-A7E7-6767A66778EA}
+		SolutionGuid = {89F93B5E-0277-4F4E-BA5F-E4B8B6222545}
 	EndGlobalSection
 EndGlobal
