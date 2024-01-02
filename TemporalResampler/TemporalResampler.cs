@@ -15,13 +15,13 @@ public class TemporalResampler : AsyncPositionedPipelineElement<IDeviceReport>
     public override PipelinePosition Position => PipelinePosition.Raw;
 
     [Property("Frame Time Shift"), DefaultPropertyValue(0.5f), ToolTip
-(
-    "Default: 0.5\n\n" +
-    "Shifts the time to add or remove predicted points. Recommended values: 0.0 - 1.0, any values beyond this would be counterintuitive and buggy.\n" +
-    "0.0 == 0% predicted, one frame of latency, beautiful lines\n" +
-    "0.5 == 50% predicted, half frame of latency, reasonable lines\n" +
-    "1.0 == 100% predicted, no latency, ugly lines. it works well if you have any smoothing"
-)]
+    (
+        "Default: 0.5\n\n" +
+        "Shifts the time to add or remove predicted points. Recommended values: 0.0 - 1.0, any values beyond this would be counterintuitive and buggy.\n" +
+        "0.0 == 0% predicted, one frame of latency, beautiful lines\n" +
+        "0.5 == 50% predicted, half frame of latency, reasonable lines\n" +
+        "1.0 == 100% predicted, no latency, ugly lines. it works well if you have any smoothing"
+    )]
     public float frameShift { set; get; }
 
     [Property("EMA Weight"), DefaultPropertyValue(1.0f), ToolTip
