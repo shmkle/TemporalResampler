@@ -31,4 +31,13 @@ Improves cursor clarity for higher refresh rate monitors with minimal latency. I
     false == uses EMA smoothing. adds latency, smooth cursor
     true == uses reverse EMA smoothing. can reverse hardware smoothing, snappy cursor. Follow the guide given by the Reconstructor plugin wiki to find the appropriate value (link below)
 
+    
+**Chatter Diameter:** 
+
+    Default: 0
+    Diameter of unusable chatter information in tablet coordinates.
+    0 == off. will make the filter use a different process for extrapolating inputs
+    higher == on. increase this value until holding your pen in place does not chatter
+
+
 [Reconstructor](https://github.com/X9VoiD/VoiDPlugins/wiki/Reconstructor)
