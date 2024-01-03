@@ -130,14 +130,14 @@ public class TemporalResampler : AsyncPositionedPipelineElement<IDeviceReport>
                         pos1 = pos2 + newDelta * vel2 + 0.5f * newDelta * newDelta * accel2;
                         vel1 = vel2 + newDelta * accel2;
 
-                        Vector2 correctVector = Trajectory(1.0f + frameShift, p3, p2, p1) - pos1;
-                        float correctPower = MathF.Min(MathF.Max(correctVector.Length() / chatterStrength - 1.0f, 0.0f), 1.0f);
-                        Vector2 correctAccel = (correctVector - vel1 * newDelta) / (newDelta * newDelta);
-
                         Vector2 toVector = Vector2.Lerp(p1 - p2, Trajectory(3.0f, p3, p2, p1) - p1, frameShift) ;
                         float toPower = MathF.Min(MathF.Max(toVector.Length() / chatterStrength - 1.0f, 0.0f), 1.0f);
                         toVector = toVector * toPower;
                         Vector2 toAccel = (toVector - vel1 * newDelta) / (newDelta * newDelta);
+
+                        Vector2 correctVector = Trajectory(2.0f + frameShift, p3, p2, p1) - pos1 - toVector;
+                        float correctPower = MathF.Min(MathF.Max(correctVector.Length() / chatterStrength - 1.0f, 0.0f), 1.0f);
+                        Vector2 correctAccel = (correctVector - vel1 * newDelta) / (newDelta * newDelta);
 
                         accel1 = Vector2.Lerp(toAccel, correctAccel, correctPower);
                     }
