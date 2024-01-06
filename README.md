@@ -17,7 +17,15 @@ Improves cursor clarity for higher refresh rate monitors with minimal latency. I
     0.5 == 50% predicted, half frame of latency, reasonable lines
     1.0 == 100% predicted, no latency, ugly lines. it works well if you have any smoothing
 
+
+**Frame Time Sync:**
+
     
+    Change this if your cursor twitches out of line, value controls how strong the filter wants to stay in sync. Default: 0.25, Range: 0.0 - 1.0
+    higher == worse looking cursor gaps, less glitching
+    lower = better-looking cursor gaps, more glitching
+
+
 **EMA Weight:** 
 
     Adds or removes smoothing. Default: 1.0, Range: 0.0 - 1.0
