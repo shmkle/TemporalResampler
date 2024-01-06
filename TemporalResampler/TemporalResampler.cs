@@ -1,3 +1,4 @@
+using OpenTabletDriver.Plugin;
 using OpenTabletDriver.Plugin.Attributes;
 using OpenTabletDriver.Plugin.Output;
 using OpenTabletDriver.Plugin.Tablet;
@@ -17,21 +18,45 @@ public class TemporalResampler : AsyncPositionedPipelineElement<IDeviceReport>
     [Property("Frame Time Shift"), DefaultPropertyValue(0.5f), ToolTip
     (
         "Default: 0.5\n\n" +
-        "Shifts the time to add or remove predicted points. Recommended values: 0.0 - 1.0, any values beyond this would be counterintuitive and buggy.\n" +
+        "Shifts the time to add or remove predicted points. Range: 0.0 - 1.0\n" +
         "0.0 == 0% predicted, one frame of latency, beautiful lines\n" +
         "0.5 == 50% predicted, half frame of latency, reasonable lines\n" +
         "1.0 == 100% predicted, no latency, ugly lines. it works well if you have any smoothing"
     )]
-    public float frameShift { set; get; }
+    public float frameShift 
+    {
+        set => _frameShift = Math.Clamp(value, 0, 1);
+        get => _frameShift;
+    }
+    public float _frameShift;
 
-    [Property("EMA Weight"), DefaultPropertyValue(1.0f), ToolTip
+    [Property("Frame Time Sync"), DefaultPropertyValue(0.25f), ToolTip
+    (
+        "Default: 0.25\n\n" +
+        "Change this if your cursor twitches out of line, value controls how strong the filter wants to stay in sync. Range: 0.0 - 1.0\n" +
+        "higher == worse looking cursor gaps, less glitching\n" +
+        "lower = better-looking cursor gaps, more glitching"
+    )]
+    public float syncPower
+    {
+        set => _syncPower = Math.Clamp(value, 0, 1);
+        get => _syncPower;
+    }
+    public float _syncPower;
+
+    [Property("EMA Weight"), DefaultPropertyValue(1f), ToolTip
     (
         "Default: 1.0\n\n" +
         "Adds or removes smoothing. Range: 0.0 - 1.0\n" +
         "1.0 == no effect\n" +
         "lower == adds more, or removes more smoothing"
     )]
-    public float weight { set; get; }
+    public float weight
+    {
+        set => _weight = Math.Clamp(value, 0, 1);
+        get => _weight;
+    }
+    public float _weight;
 
     [Property("Reverse EMA"), DefaultPropertyValue(false), ToolTip
     (
@@ -51,26 +76,29 @@ public class TemporalResampler : AsyncPositionedPipelineElement<IDeviceReport>
     )]
     public int chatterDiameter { set; get; }
 
-    protected override void UpdateState()
+protected override void UpdateState()
     {
         if (State is ITabletReport report && PenIsInRange())
         {
             float updateDelta = (float)updateStopwatch.Restart().TotalSeconds;
             t += rpsAvg * updateDelta * m * 0.5f;
             Vector2 output;
+            float limit0 = frameShift + 0.5f;
+            float limit1 = frameShift - 1.5f;
 
-            if (chatterDiameter > 0)
+            if (chatterDiameter > 0) // chatter diameter active
             {
-                float t1 = t / rpsAvg;
-                float t2 = (t + 1.0f) / rpsAvg;
+                float t1 = Math.Min(t, limit0) / rpsAvg;
+                float t2 = Math.Max(t + 1f, limit1) / rpsAvg;
 
-                if (t > 0.0f)
+                if (t > 0f) // ahead of latest report
                     output = pos1 + t1 * vel1 + 0.5f * t1 * t1 * accel1;
-                else
+                else // behind latest report
                     output = pos2 + t2 * vel2 + 0.5f * t2 * t2 * accel2;
+
             }
-            else
-                output = Trajectory(MathF.Min(MathF.Max(t, -2.0f), 2.0f) + 2.0f, p3, p2, p1);
+            else // chatter diameter not active
+                output = Trajectory(Math.Clamp(t, limit1, limit0) + 2f, p3, p2, p1);
 
             t += rpsAvg * updateDelta * m * 0.5f;
             report.Position = output;
@@ -83,19 +111,20 @@ public class TemporalResampler : AsyncPositionedPipelineElement<IDeviceReport>
     {
         if (State is ITabletReport report)
         {
+            Log.Debug("frameShift", frameShift.ToString());
             float consumeDelta = (float)reportStopwatch.Restart().TotalSeconds;
             Vector2 position = report.Position;
             Vector2 p0;
             pressure = report.Pressure;
 
-            if (consumeDelta < 0.02f && consumeDelta > 0.0f)
-                rpsAvg += (1.0f / consumeDelta - rpsAvg) * 0.01f;
+            if (consumeDelta < 0.03f && consumeDelta > 0f) // detects if the tablet was out of range
+                rpsAvg += (1f / consumeDelta - rpsAvg) * 0.01f;
             else
                 placeDebounce = false;
 
-            if (placeDebounce)
+            if (placeDebounce) // 2nd+ frames since detection
             {
-                float chatterStrength = chatterDiameter;
+                float chatterStrength = chatterDiameter * 0.5f;
 
                 if (reverseSmoothing)
                 {
@@ -113,15 +142,16 @@ public class TemporalResampler : AsyncPositionedPipelineElement<IDeviceReport>
                 p2 = p1;
                 p1 = p0;
 
-                if (t > -3.0f & t < 3.0f)
+                if (t > -3f & t < 3f) // fixes tabbing into programs
                 {
-                    t -= 1.0f;
+                    t -= 1f;
 
-                    if (chatterDiameter > 0)
+                    if (chatterDiameter > 0) // chatter diameter active
                     {
-                        float newDelta = 1.0f / rpsAvg;
+                        float newDelta = 1f / rpsAvg;
+                        float edgeSharpness = 1.414f;
 
-                        m += (frameShiftBase - t - m) * 0.33f;
+                        m += (frameShiftBase - t - m) * syncPower;
 
                         pos2 = pos1;
                         vel2 = vel1;
@@ -130,28 +160,29 @@ public class TemporalResampler : AsyncPositionedPipelineElement<IDeviceReport>
                         pos1 = pos2 + newDelta * vel2 + 0.5f * newDelta * newDelta * accel2;
                         vel1 = vel2 + newDelta * accel2;
 
-                        Vector2 toVector = Vector2.Lerp(p1 - p2, Trajectory(3.0f, p3, p2, p1) - p1, frameShift) ;
-                        float toPower = MathF.Min(MathF.Max(toVector.Length() / chatterStrength - 1.0f, 0.0f), 1.0f);
-                        toVector = toVector * toPower;
-                        Vector2 toAccel = (toVector - vel1 * newDelta) / (newDelta * newDelta);
+                        Vector2 traject1 = Trajectory(2f + frameShift, p3, p2, p1);
+                        Vector2 traject2 = Trajectory(1f + frameShift, p3, p2, p1);
+                        float mix = Math.Clamp(Vector2.Distance(pos1, traject2) / chatterStrength * edgeSharpness, 0f, 1f);
 
-                        Vector2 correctVector = Trajectory(2.0f + frameShift, p3, p2, p1) - pos1 - toVector;
-                        float correctPower = MathF.Min(MathF.Max(correctVector.Length() / chatterStrength - 1.0f, 0.0f), 1.0f);
-                        Vector2 correctAccel = (correctVector - vel1 * newDelta) / (newDelta * newDelta);
+                        Vector2 accelVector = traject1 - pos1 * mix - traject2 * (1f - mix);
+                        accelVector *= Math.Clamp((accelVector.Length() / chatterStrength - 1f) * edgeSharpness, 0f, 1f);
 
-                        accel1 = Vector2.Lerp(toAccel, correctAccel, correctPower);
+                        accel1 = (accelVector - vel1 * newDelta) / (newDelta * newDelta);
                     }
-                    else
-                        m += (frameShift - t - m) * 0.33f;
+                    else // chatter diameter not active
+                        m += (frameShift - t - m) * syncPower;
+
                 }
                 else
                     resetValues(position);
+
             }
-            else
+            else // 1st frame since detection
             {
                 resetValues(position);
                 placeDebounce = true;
             }
+
         }
         else OnEmit();
     }
@@ -167,27 +198,28 @@ public class TemporalResampler : AsyncPositionedPipelineElement<IDeviceReport>
         vel2 = Vector2.Zero;
         accel1 = Vector2.Zero;
         accel2 = Vector2.Zero;
-        
-        m = 1.0f;
+        m = 1f;
+
         if (chatterDiameter != 0)
-            t = frameShiftBase - 1.0f;
+            t = frameShiftBase - 1f;
         else
-            t = frameShift - 1.0f;
+            t = frameShift - 1f;
     }
 
-    private static Vector2 Trajectory(float t, Vector2 v3, Vector2 v2, Vector2 v1)
+    private static Vector2 Trajectory(float t, Vector2 v3, Vector2 v2, Vector2 v1) // cool formula for finding the best-fit quadratic function that passes 3 points
     {
-        return v3 + (2.0f * v2 - v3 - (v1 + v3) * 0.5f) * t + ((v1 + v3) * 0.5f - v2) * t * t;
+        return v3 + (2f * v2 - v3 - (v1 + v3) * 0.5f) * t + ((v1 + v3) * 0.5f - v2) * t * t;
     }
 
+    // values
     private Vector2 p3, p2, p1, lp;
     private Vector2 pos1, vel1, accel1;
     private Vector2 pos2, vel2, accel2;
     private bool placeDebounce = false;
     private uint pressure;
     private float t = -0.5f;
-    private float m = 1.0f;
-    private float rpsAvg = 200.0f;
+    private float m = 1f;
+    private float rpsAvg = 200f;
     private float frameShiftBase = 0.90f;
     private HPETDeltaStopwatch reportStopwatch = new HPETDeltaStopwatch();
     private HPETDeltaStopwatch updateStopwatch = new HPETDeltaStopwatch();
