@@ -34,7 +34,7 @@ Improves cursor clarity for higher refresh rate monitors with minimal latency. I
 
     Default: 0ms
 
-    The amount of latency added by smoothing, approach is similar to the Hawku filter.
+    The amount of latency added by smoothing, approach is similar to Hawku smoothing.
 
     
 **Reverse EMA:** 
