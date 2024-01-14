@@ -17,8 +17,10 @@ public class TemporalResampler : AsyncPositionedPipelineElement<IDeviceReport>
 
     [Property("Frame Time Shift"), DefaultPropertyValue(0.5f), ToolTip
     (
-        "Default: 0.5\n\n" +
-        "Shifts the time to add or remove predicted points. Range: 0.0 - 1.0\n" +
+        "Default: 0.5\n" +
+        "Range: 0.0 - 1.0\n\n" +
+
+        "Shifts the time to add or remove predicted points.\n" +
         "0.0 == 0% predicted, one frame of latency, beautiful lines\n" +
         "0.5 == 50% predicted, half frame of latency, reasonable lines\n" +
         "1.0 == 100% predicted, no latency, ugly lines. it works well if you have any smoothing"
@@ -30,53 +32,46 @@ public class TemporalResampler : AsyncPositionedPipelineElement<IDeviceReport>
     }
     public float _frameShift;
 
-    [Property("Frame Time Sync"), DefaultPropertyValue(0.25f), ToolTip
-    (
-        "Default: 0.25\n\n" +
-        "Change this if your cursor twitches out of line, value controls how strong the filter wants to stay in sync. Range: 0.0 - 1.0\n" +
-        "higher == worse looking cursor gaps, less glitching\n" +
-        "lower = better-looking cursor gaps, more glitching"
-    )]
-    public float syncPower
-    {
-        set => _syncPower = Math.Clamp(value, 0, 1);
-        get => _syncPower;
-    }
-    public float _syncPower;
-
-    [Property("EMA Weight"), DefaultPropertyValue(1f), ToolTip
-    (
-        "Default: 1.0\n\n" +
-        "Adds or removes smoothing. Range: 0.0 - 1.0\n" +
-        "1.0 == no effect\n" +
-        "lower == adds more, or removes more smoothing"
-    )]
-    public float weight
-    {
-        set => _weight = Math.Clamp(value, 0, 1);
-        get => _weight;
-    }
-    public float _weight;
-
-    [Property("Reverse EMA"), DefaultPropertyValue(false), ToolTip
-    (
-        "Default: false\n\n" +
-        "Determines if EMA smoothing is added or removed.\n" +
-        "false == uses EMA smoothing. adds latency, smooth cursor\n" +
-        "true == uses reverse EMA smoothing. can reverses hardware smoothing, snappy cursor"
-    )]
-    public bool reverseSmoothing { set; get; }
-
     [Property("Chatter Diameter"), DefaultPropertyValue(0), ToolTip
     (
         "Default: 0\n\n" +
+
         "Diameter of unusable chatter information in tablet coordinates.\n" +
         "0 == off. will make the filter use a different process for extrapolating inputs\n" +
         "higher == on. increase this value until holding your pen in place does not chatter"
     )]
     public int chatterDiameter { set; get; }
 
-protected override void UpdateState()
+    [Property("Smoothing Latency"), DefaultPropertyValue(0f), Unit("ms"), ToolTip
+    (
+        "Default: 0ms\n\n" +
+
+        "The amount of latency added by smoothing, approach is similar to Hawku smoothing."
+    )]
+    public float latency
+    {
+        set => _latency = Math.Max(value, 0);
+        get => _latency;
+    }
+    public float _latency;
+
+    [Property("Reverse EMA"), DefaultPropertyValue(1f), ToolTip
+(
+    "Default: 1.0\n" +
+    "Range: 0.0 - 1.0\n\n" +
+
+    "Removes hardware smoothing, fine-tuned this to your tablet. Follow the guide given in the Reconstructor filter wiki.\n" +
+    "1.0 == no effect\n" +
+    "lower == removes more hardware smoothing"
+)]
+    public float reverseSmoothing
+    {
+        set => _reverseSmoothing = Math.Clamp(value, 0, 1);
+        get => _reverseSmoothing;
+    }
+    public float _reverseSmoothing;
+
+    protected override void UpdateState()
     {
         if (State is ITabletReport report && PenIsInRange())
         {
@@ -111,7 +106,6 @@ protected override void UpdateState()
     {
         if (State is ITabletReport report)
         {
-            Log.Debug("frameShift", frameShift.ToString());
             float consumeDelta = (float)reportStopwatch.Restart().TotalSeconds;
             Vector2 position = report.Position;
             Vector2 p0;
@@ -124,19 +118,15 @@ protected override void UpdateState()
 
             if (placeDebounce) // 2nd+ frames since detection
             {
-                float chatterStrength = chatterDiameter * 0.5f;
+                float chatterStrength = chatterDiameter * 0.5f / reverseSmoothing;
 
-                if (reverseSmoothing)
-                {
-                    p0 = lp + (position - lp) / weight;
-                    lp = position;
-                    chatterStrength /= weight;
-                }
-                else
-                {
-                    p0 = p1 + (position - p1) * weight;
-                    chatterStrength *= weight;
-                }
+                // reverse smoothing
+                p0 = lp + (position - lp) / reverseSmoothing;
+                lp = position;
+
+                // add smoothing
+                float weight = 1f - 1f / MathF.Pow(1f / 0.37f, 1000 / rpsAvg / latency);
+                p0 = p1 + (p0 - p1) * weight;
 
                 p3 = p2;
                 p2 = p1;
@@ -217,6 +207,7 @@ protected override void UpdateState()
     private Vector2 pos2, vel2, accel2;
     private bool placeDebounce = false;
     private uint pressure;
+    private float syncPower = 0.25f;
     private float t = -0.5f;
     private float m = 1f;
     private float rpsAvg = 200f;
