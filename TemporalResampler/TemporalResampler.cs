@@ -72,7 +72,7 @@ public class TemporalResampler : AsyncPositionedPipelineElement<IDeviceReport>
     (
         "Default: True\n\n" +
 
-        "Wires ConsumeState to UpdateState for a further increase update frequency with no elevated OTD CPU usage.\n" +
+        "Wires ConsumeState to UpdateState for a further increased update frequency with no elevated OTD CPU usage.\n" +
         "Disable if any unexpected behavior is happening or you just don't want it on."
     )]
     public bool extraFrames { set; get; }
