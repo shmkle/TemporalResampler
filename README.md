@@ -47,18 +47,18 @@ Improves cursor clarity for higher refresh rate monitors with minimal latency. I
 
 **Maximize Frequency**
 
-        Default: True
+    Default: True
 
-        Wires ConsumeState to UpdateState for a further increase update frequency with no elevated OTD CPU usage.\n" +
-        Disable if any unexpected behavior is happening or you just don't want it on."
-        
+    Wires ConsumeState to UpdateState for a further increased update frequency with no elevated OTD CPU usage.\n" +
+    Disable if any unexpected behavior is happening or you just don't want it on."
+    
 **Log Stats**
 
-        Default: False
+    Default: False
 
-        Logs the time and physical latency in OpenTableDriver Console.
-        Make sure to disable when you are done so you don't waste memory.
-        [False] == logging disabled
-        [True] == logging enabled, check the Console tab in OpenTableDriver
+    Logs the time and physical latency in OpenTableDriver Console.
+    Make sure to disable when you are done so you don't waste memory.
+    [False] == logging disabled
+    [True] == logging enabled, check the Console tab in OpenTableDriver
 
 [Reconstructor](https://github.com/X9VoiD/VoiDPlugins/wiki/Reconstructor)
