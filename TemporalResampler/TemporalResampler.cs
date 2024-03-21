@@ -5,7 +5,7 @@ using OpenTabletDriver.Plugin.Tablet;
 using OpenTabletDriver.Plugin.Timing;
 using System.Numerics;
 
-[PluginName("TemporalResampler"), DeviceHub()]
+[PluginName("Temporal Resampler"), DeviceHub()]
 public class TemporalResampler : AsyncPositionedPipelineElement<IDeviceReport>
 {
     public TemporalResampler() : base()
