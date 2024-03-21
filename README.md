@@ -10,24 +10,22 @@ Improves cursor clarity for higher refresh rate monitors with minimal latency. I
 
 ### The Values:
 
-**Frame Time Shift:**
-    
+**Prediction Ratio:**
+
     Default: 0.5
     Range: 0.0 - 1.0
 
-    Shifts the time to add or remove predicted points.
-    0.0 == 0% predicted, one frame of latency, beautiful lines
-    0.5 == 50% predicted, half frame of latency, reasonable lines
-    1.0 == 100% predicted, no latency, ugly lines. it works well if you have any smoothing
+    Determines the time distance the filter predicts inputs for each tablet update.
+    0.0 == [slower] 0% predicted, one rps of latency
+    0.5 == [balanced] 50% predicted, half rps of latency
+    1.0 == [overkill] 100% predicted, no added latency (works best with some smoothing)
 
 
-**Chatter Diameter:** 
+**Follow Radius:** 
 
-    Default: 0
+    Default: 0.0
     
-    Diameter of unusable chatter information in tablet coordinates.
-    0 == off. will make the filter use a different process for extrapolating inputs
-    higher == on. increase this value until holding your pen in place does not chatter
+    Radius of cursor trailing distance in millimeters.
 
 
 **Smoothing Latency:** 
@@ -46,5 +44,21 @@ Improves cursor clarity for higher refresh rate monitors with minimal latency. I
     1.0 == no effect
     lower == removes more hardware smoothing
 
+
+**Maximize Frequency**
+
+        Default: True
+
+        Wires ConsumeState to UpdateState for a further increase update frequency with no elevated OTD CPU usage.\n" +
+        Disable if any unexpected behavior is happening or you just don't want it on."
+        
+**Log Stats**
+
+        Default: False
+
+        Logs the time latency and distance latency in OpenTableDriver Console.
+        Make sure to disable when you are done so you don't waste memory.
+        [False] == logging disabled
+        [True] == logging enabled, check the Console tab in OpenTableDriver
 
 [Reconstructor](https://github.com/X9VoiD/VoiDPlugins/wiki/Reconstructor)
