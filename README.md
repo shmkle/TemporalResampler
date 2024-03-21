@@ -56,7 +56,7 @@ Improves cursor clarity for higher refresh rate monitors with minimal latency. I
 
         Default: False
 
-        Logs the time latency and distance latency in OpenTableDriver Console.
+        Logs the time, physical, and distance latency in OpenTableDriver Console.
         Make sure to disable when you are done so you don't waste memory.
         [False] == logging disabled
         [True] == logging enabled, check the Console tab in OpenTableDriver
