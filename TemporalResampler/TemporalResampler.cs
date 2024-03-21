@@ -81,7 +81,7 @@ public class TemporalResampler : AsyncPositionedPipelineElement<IDeviceReport>
     (
         "Default: False\n\n" +
 
-        "Logs the time, physical, and distance latency in OpenTableDriver Console.\n" +
+        "Logs the time and physical latency in OpenTableDriver Console.\n" +
         "Make sure to disable when you are done so you don't waste memory.\n" +
         "[False] == logging disabled\n" +
         "[True] == logging enabled, check the Console tab in OpenTableDriver"
@@ -161,19 +161,20 @@ public class TemporalResampler : AsyncPositionedPipelineElement<IDeviceReport>
                     if (speedAvg * 0f != speedAvg * 0f)
                         speedAvg = 0f;
 
-                    logReportMax = (logReportMax > 0f) ? Math.Min(rpsAvg, logReportMax) : rpsAvg;
-                    logSpeedMax = (logSpeedMax > 0f) ? Math.Max(speedAvg, logSpeedMax) : speedAvg;
+                    logReportMax = (logReportMax > 0d) ? Math.Min(rpsAvg, logReportMax) : rpsAvg;
+                    logSpeedMax = (logSpeedMax > 0d) ? Math.Min(speedAvg, logSpeedMax) : speedAvg;
                     logDistanceMax = Math.Max(Vector2.DistanceSquared(predictPoints[2], aE), logDistanceMax);
 
                     if (logStopwatch.Elapsed.TotalSeconds > 1)
                     {
                         logDistanceMax = Math.Sqrt(logDistanceMax);
-                        double measuredTimeLatency = Math.Round(((1f - frameShift) / logReportMax + 0.5 / (Frequency + (extraFrames ? logReportMax : 0f))) * 1000 + latency, 2);
-                        double measuredDistLatency = Math.Round(logDistanceMax / upmm, 2);
-                        double measuredPhysicalLatency = Math.Round(logDistanceMax / logSpeedMax * 1000, 2);
-                        Log.Write("TemporalResampler", "(time latency, physical latency, distance latency): " + measuredTimeLatency.ToString() + "ms, " + measuredPhysicalLatency.ToString() + "ms, " + measuredDistLatency.ToString() + "mm");
+                        double baseLatency = 0.5d / (Frequency + (extraFrames ? logReportMax : 0d));
+
+                        double measuredTimeLatency = Math.Round(((1d - frameShift) / logReportMax + baseLatency) * 1000d + latency, 2);
+                        double measuredPhysicalLatency = Math.Round((logDistanceMax / logSpeedMax + baseLatency) * 1000d, 2);
+                        Log.Write("TemporalResampler", "(time latency, physical latency): " + measuredTimeLatency.ToString() + "ms, " + measuredPhysicalLatency.ToString() + "ms");
                         
-                        logDistanceMax = logSpeedMax = logReportMax = 0f;
+                        logDistanceMax = logSpeedMax = logReportMax = 0d;
                         logCount += 1;
                         logStopwatch.Restart();
                     }
