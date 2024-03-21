@@ -81,7 +81,7 @@ public class TemporalResampler : AsyncPositionedPipelineElement<IDeviceReport>
     (
         "Default: False\n\n" +
 
-        "Logs the time latency and distance latency in OpenTableDriver Console.\n" +
+        "Logs the time, physical, and distance latency in OpenTableDriver Console.\n" +
         "Make sure to disable when you are done so you don't waste memory.\n" +
         "[False] == logging disabled\n" +
         "[True] == logging enabled, check the Console tab in OpenTableDriver"
@@ -127,7 +127,8 @@ public class TemporalResampler : AsyncPositionedPipelineElement<IDeviceReport>
             // reverse smoothing
             if (reverseSmoothing < 1f)
                 smoothed = bE + (smoothed - bE) / reverseSmoothing;
-            bE = real; aE = smoothed;
+            bE = real; 
+            Vector2 aE = smoothed;
 
             // smoothing
             if (latency > 0f)
@@ -156,16 +157,23 @@ public class TemporalResampler : AsyncPositionedPipelineElement<IDeviceReport>
 
                 if (loggingEnabled) // data log
                 {
-                    logDistanceMax = Math.Max(Vector2.DistanceSquared(predictPoints[1], aE), logDistanceMax);
+                    speedAvg += (Vector2.Distance(predictPoints[2], predictPoints[1]) * rpsAvg - speedAvg) * (1f - MathF.Exp(-10f * consumeDelta));
+                    if (speedAvg * 0f != speedAvg * 0f)
+                        speedAvg = 0f;
+
                     logReportMax = (logReportMax > 0f) ? Math.Min(rpsAvg, logReportMax) : rpsAvg;
+                    logSpeedMax = (logSpeedMax > 0f) ? Math.Max(speedAvg, logSpeedMax) : speedAvg;
+                    logDistanceMax = Math.Max(Vector2.DistanceSquared(predictPoints[2], aE), logDistanceMax);
 
                     if (logStopwatch.Elapsed.TotalSeconds > 1)
                     {
+                        logDistanceMax = Math.Sqrt(logDistanceMax);
                         double measuredTimeLatency = Math.Round(((1f - frameShift) / logReportMax + 0.5 / (Frequency + (extraFrames ? logReportMax : 0f))) * 1000 + latency, 2);
-                        double measuredDistLatency = Math.Round(Math.Sqrt(logDistanceMax) / upmm, 2);
-                        Log.Write("TemporalResampler", "(time latency, distance latency): " + measuredTimeLatency.ToString() + "ms, " + measuredDistLatency.ToString() + "mm");
+                        double measuredDistLatency = Math.Round(logDistanceMax / upmm, 2);
+                        double measuredPhysicalLatency = Math.Round(logDistanceMax / logSpeedMax * 1000, 2);
+                        Log.Write("TemporalResampler", "(time latency, physical latency, distance latency): " + measuredTimeLatency.ToString() + "ms, " + measuredPhysicalLatency.ToString() + "ms, " + measuredDistLatency.ToString() + "mm");
                         
-                        logDistanceMax = logReportMax = 0f;
+                        logDistanceMax = logSpeedMax = logReportMax = 0f;
                         logCount += 1;
                         logStopwatch.Restart();
                     }
@@ -191,7 +199,7 @@ public class TemporalResampler : AsyncPositionedPipelineElement<IDeviceReport>
         {
             smoothedPoints[i] = predictPoints[i] = p0;
         }
-        bE = aE = sC = p0; m = 1f; t = -1f;
+        bE = sC = p0; m = 1f; t = -1f;
     }
 
     private static Vector2 Trajectory(float t, Vector2 v3, Vector2 v2, Vector2 v1) // cool formula for finding the best-fit quadratic function that passes 3 points
@@ -203,13 +211,13 @@ public class TemporalResampler : AsyncPositionedPipelineElement<IDeviceReport>
     private uint pressure;
     private Vector2[] smoothedPoints = new Vector2[5];
     private Vector2[] predictPoints = new Vector2[5];
-    private Vector2 bE, aE, sC;
-    private float t = -1f, m = 1f, rpsAvg;
+    private Vector2 bE, sC;
+    private float t = -1f, m = 1f, rpsAvg, speedAvg;
     private bool resetDebounce;
     private HPETDeltaStopwatch reportStopwatch = new HPETDeltaStopwatch();
     private HPETDeltaStopwatch updateStopwatch = new HPETDeltaStopwatch();
     private HPETDeltaStopwatch logStopwatch = new HPETDeltaStopwatch();
-    private double logDistanceMax, logReportMax;
+    private double logDistanceMax, logSpeedMax, logReportMax;
     private int logCount;
 
     [TabletReference]
