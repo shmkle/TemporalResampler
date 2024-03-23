@@ -92,11 +92,9 @@ public class TemporalResampler : AsyncPositionedPipelineElement<IDeviceReport>
     {
         if (State is not ITabletReport report || !PenIsInRange()) return;
 
-        int iAdd = t < -1f ? 1 : 0;
-        float d = rpsAvg * (float)updateStopwatch.Restart().TotalSeconds * m;
-        report.Position = Trajectory(Math.Clamp(iAdd + t + d * 0.5f, iAdd - 2f, iAdd + 1f) + 2f, predictPoints[3 + iAdd], predictPoints[2 + iAdd], predictPoints[1 + iAdd]);
+        float _t = t + (float)reportStopwatch.Elapsed.TotalSeconds * rpsAvg * m; int iAdd = (_t < -1f) ? 1 : 0;
+        report.Position = Trajectory(Math.Clamp(iAdd + _t, iAdd - 2f, iAdd + 1f) + 2f, predictPoints[3 + iAdd], predictPoints[2 + iAdd], predictPoints[1 + iAdd]);
         report.Pressure = pressure;
-        t += d;
 
         State = report;
         OnEmit();
@@ -127,7 +125,7 @@ public class TemporalResampler : AsyncPositionedPipelineElement<IDeviceReport>
             // reverse smoothing
             if (reverseSmoothing < 1f)
                 smoothed = bE + (smoothed - bE) / reverseSmoothing;
-            bE = real; 
+            bE = real;
             Vector2 aE = smoothed;
 
             // smoothing
@@ -146,20 +144,18 @@ public class TemporalResampler : AsyncPositionedPipelineElement<IDeviceReport>
             }
             InsertPoint(predictPoints, predict);
 
-            if (t > -3f & t < 3f) // fixes tabbing into programs
+            if (t > -2f & t < 2f)
             {
-                t -= 1f;
-                
+                t += consumeDelta * rpsAvg * m - 1f;
+                m -= (t + m) * 0.1f;
+
                 if (extraFrames)
                     UpdateState();
-
-                m -= (t + m) * 0.1f;
 
                 if (loggingEnabled) // data log
                 {
                     speedAvg += (Vector2.Distance(predictPoints[2], predictPoints[1]) * rpsAvg - speedAvg) * (1f - MathF.Exp(-10f * consumeDelta));
-                    if (speedAvg * 0f != speedAvg * 0f)
-                        speedAvg = 0f;
+                    if (speedAvg * 0f != speedAvg * 0f) speedAvg = 0f;
 
                     logReportMax = (logReportMax > 0d) ? Math.Min(rpsAvg, logReportMax) : rpsAvg;
                     logSpeedMax = (logSpeedMax > 0d) ? Math.Min(speedAvg, logSpeedMax) : speedAvg;
@@ -168,12 +164,10 @@ public class TemporalResampler : AsyncPositionedPipelineElement<IDeviceReport>
                     if (logStopwatch.Elapsed.TotalSeconds > 1)
                     {
                         logDistanceMax = Math.Sqrt(logDistanceMax);
-                        double baseLatency = 0.5d / (Frequency + (extraFrames ? logReportMax : 0d));
-
-                        double measuredTimeLatency = Math.Round(((1d - frameShift) / logReportMax + baseLatency) * 1000d + latency, 2);
-                        double measuredPhysicalLatency = Math.Round((logDistanceMax / logSpeedMax + baseLatency) * 1000d, 2);
+                        double measuredTimeLatency = Math.Round((1d - frameShift) / logReportMax * 1000d + latency, 2);
+                        double measuredPhysicalLatency = Math.Round(logDistanceMax / logSpeedMax * 1000d, 2);
                         Log.Write("TemporalResampler", "(time latency, physical latency): " + measuredTimeLatency.ToString() + "ms, " + measuredPhysicalLatency.ToString() + "ms");
-                        
+
                         logDistanceMax = logSpeedMax = logReportMax = 0d;
                         logCount += 1;
                         logStopwatch.Restart();
@@ -216,7 +210,6 @@ public class TemporalResampler : AsyncPositionedPipelineElement<IDeviceReport>
     private float t = -1f, m = 1f, rpsAvg, speedAvg;
     private bool resetDebounce;
     private HPETDeltaStopwatch reportStopwatch = new HPETDeltaStopwatch();
-    private HPETDeltaStopwatch updateStopwatch = new HPETDeltaStopwatch();
     private HPETDeltaStopwatch logStopwatch = new HPETDeltaStopwatch();
     private double logDistanceMax, logSpeedMax, logReportMax;
     private int logCount;
