@@ -144,11 +144,11 @@ public class TemporalResampler : AsyncPositionedPipelineElement<IDeviceReport>
             }
             InsertPoint(predictPoints, predict);
 
-            if (t > -2f & t < 2f)
-            {
-                t += consumeDelta * rpsAvg * m - 1f;
-                m -= (t + m) * 0.1f;
+            t += consumeDelta * rpsAvg * m - 1f;
+            m -= (t + m) * 0.1f;
 
+            if (t > -3f && t < 1f)
+            {
                 if (extraFrames)
                     UpdateState();
 
