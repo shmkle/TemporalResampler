@@ -49,8 +49,8 @@ Improves cursor clarity for higher refresh rate monitors with minimal latency. I
 
     Default: True
 
-    Wires ConsumeState to UpdateState for a further increased update frequency with no elevated OTD CPU usage.\n" +
-    Disable if any unexpected behavior is happening or you just don't want it on."
+    Wires ConsumeState to UpdateState for a further increased update frequency with no elevated OTD CPU usage.
+    Disable if any unexpected behavior is happening or you just don't want it on.
     
 **Log Stats**
 
