@@ -102,85 +102,88 @@ public class TemporalResampler : AsyncPositionedPipelineElement<IDeviceReport>
 
     protected override void ConsumeState()
     {
-        if (State is not ITabletReport report || TabletReference == null) return;
-
-        float consumeDelta = (float)reportStopwatch.Restart().TotalSeconds;
-        var digitizer = TabletReference.Properties.Specifications.Digitizer;
-        float upmm = digitizer.MaxX / digitizer.Width;
-
-        Vector2 real = report.Position;
-        pressure = report.Pressure;
-        loggingEnabled &= logCount < 30;
-
-        if (!resetDebounce)
-            ResetValues(real);
-        resetDebounce = true;
-
-        if (consumeDelta < 0.03f && consumeDelta > 0f)
+        if (State is ITabletReport report && TabletReference != null)
         {
-            // rps average
-            rpsAvg = (rpsAvg == 0f) ? 1 / consumeDelta : rpsAvg + (1f / consumeDelta - rpsAvg) * (1f - MathF.Exp(-2f * consumeDelta));
+            float consumeDelta = (float)reportStopwatch.Restart().TotalSeconds;
+            var digitizer = TabletReference.Properties.Specifications.Digitizer;
+            float upmm = digitizer.MaxX / digitizer.Width;
 
-            Vector2 smoothed = real;
-            // reverse smoothing
-            if (reverseSmoothing < 1f)
-                smoothed = bE + (smoothed - bE) / reverseSmoothing;
-            bE = real;
-            Vector2 aE = smoothed;
+            Vector2 real = report.Position;
+            pressure = report.Pressure;
+            loggingEnabled &= logCount < 30;
 
-            // smoothing
-            if (latency > 0f)
-                smoothed += (sC - smoothed) * MathF.Exp(1000 / rpsAvg / -latency);
-            sC = smoothed;
-            InsertPoint(smoothedPoints, smoothed);
+            if (!resetDebounce)
+                ResetValues(real);
+            resetDebounce = true;
 
-            // follow radius
-            Vector2 predict = Trajectory(2f + frameShift, smoothedPoints[3], smoothedPoints[2], smoothedPoints[1]);
-            if (followRadius > 0f)
+            if (consumeDelta < 0.03f && consumeDelta > 0f)
             {
-                Vector2 delta = predict - predictPoints[1];
-                float mag = delta.Length();
-                predict = (mag > 0f) ? predictPoints[1] + Math.Clamp((mag - Math.Max(followRadius * upmm, 0)) / mag, 0, 1) * delta : predict;
-            }
-            InsertPoint(predictPoints, predict);
+                // rps average
+                rpsAvg = (rpsAvg == 0f) ? 1 / consumeDelta : rpsAvg + (1f / consumeDelta - rpsAvg) * (1f - MathF.Exp(-2f * consumeDelta));
 
-            t += consumeDelta * rpsAvg * m - 1f;
-            m -= (t + m) * 0.1f;
+                Vector2 smoothed = real;
+                // reverse smoothing
+                if (reverseSmoothing < 1f)
+                    smoothed = bE + (smoothed - bE) / reverseSmoothing;
+                bE = real;
+                Vector2 aE = smoothed;
 
-            if (t > -3f && t < 1f)
-            {
-                if (extraFrames)
-                    UpdateState();
+                // smoothing
+                if (latency > 0f)
+                    smoothed += (sC - smoothed) * MathF.Exp(1000 / rpsAvg / -latency);
+                sC = smoothed;
+                InsertPoint(smoothedPoints, smoothed);
 
-                if (loggingEnabled) // data log
+                // follow radius
+                Vector2 predict = Trajectory(2f + frameShift, smoothedPoints[3], smoothedPoints[2], smoothedPoints[1]);
+                if (followRadius > 0f)
                 {
-                    speedAvg += (Vector2.Distance(predictPoints[2], predictPoints[1]) * rpsAvg - speedAvg) * (1f - MathF.Exp(-10f * consumeDelta));
-                    if (speedAvg * 0f != speedAvg * 0f) speedAvg = 0f;
+                    Vector2 delta = predict - predictPoints[1];
+                    float mag = delta.Length();
+                    predict = (mag > 0f) ? predictPoints[1] + Math.Clamp((mag - Math.Max(followRadius * upmm, 0)) / mag, 0, 1) * delta : predict;
+                }
+                InsertPoint(predictPoints, predict);
 
-                    logReportMax = (logReportMax > 0d) ? Math.Min(rpsAvg, logReportMax) : rpsAvg;
-                    logSpeedMax = (logSpeedMax > 0d) ? Math.Min(speedAvg, logSpeedMax) : speedAvg;
-                    logDistanceMax = Math.Max(Vector2.DistanceSquared(predictPoints[2], aE), logDistanceMax);
+                t += consumeDelta * rpsAvg * m - 1f;
+                m -= (t + m) * 0.1f;
 
-                    if (logStopwatch.Elapsed.TotalSeconds > 1)
+                if (t > -3f && t < 1f)
+                {
+                    if (extraFrames)
+                        UpdateState();
+
+                    if (loggingEnabled) // data log
                     {
-                        logDistanceMax = Math.Sqrt(logDistanceMax);
-                        double measuredTimeLatency = Math.Round((1d - frameShift) / logReportMax * 1000d + latency, 2);
-                        double measuredPhysicalLatency = Math.Round(logDistanceMax / logSpeedMax * 1000d, 2);
-                        Log.Write("TemporalResampler", "(time latency, physical latency): " + measuredTimeLatency.ToString() + "ms, " + measuredPhysicalLatency.ToString() + "ms");
+                        speedAvg += (Vector2.Distance(predictPoints[2], predictPoints[1]) * rpsAvg - speedAvg) * (1f - MathF.Exp(-10f * consumeDelta));
+                        if (speedAvg * 0f != speedAvg * 0f) speedAvg = 0f;
 
-                        logDistanceMax = logSpeedMax = logReportMax = 0d;
-                        logCount += 1;
-                        logStopwatch.Restart();
+                        logReportMax = (logReportMax > 0d) ? Math.Min(rpsAvg, logReportMax) : rpsAvg;
+                        logSpeedMax = (logSpeedMax > 0d) ? Math.Min(speedAvg, logSpeedMax) : speedAvg;
+                        logDistanceMax = Math.Max(Vector2.DistanceSquared(predictPoints[2], aE), logDistanceMax);
+
+                        if (logStopwatch.Elapsed.TotalSeconds > 1)
+                        {
+                            logDistanceMax = Math.Sqrt(logDistanceMax);
+                            double measuredTimeLatency = Math.Round((1d - frameShift) / logReportMax * 1000d + latency, 2);
+                            double measuredPhysicalLatency = Math.Round(logDistanceMax / logSpeedMax * 1000d, 2);
+                            Log.Write("TemporalResampler", "(time latency, physical latency): " + measuredTimeLatency.ToString() + "ms, " + measuredPhysicalLatency.ToString() + "ms");
+
+                            logDistanceMax = logSpeedMax = logReportMax = 0d;
+                            logCount += 1;
+                            logStopwatch.Restart();
+                        }
                     }
+                    else
+                        logStopwatch.Stop();
                 }
                 else
-                    logStopwatch.Stop();
+                    ResetValues(real);
             }
             else
                 ResetValues(real);
         }
         else
-            ResetValues(real);
+            OnEmit();
     }
 
     private void InsertPoint(Vector2[] arr, Vector2 v)
