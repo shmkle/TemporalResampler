@@ -3,7 +3,9 @@ using OpenTabletDriver.Plugin.Attributes;
 using OpenTabletDriver.Plugin.Output;
 using OpenTabletDriver.Plugin.Tablet;
 using OpenTabletDriver.Plugin.Timing;
+using System;
 using System.Numerics;
+using System.Runtime.Intrinsics;
 
 [PluginName("Temporal Resampler"), DeviceHub()]
 public class TemporalResampler : AsyncPositionedPipelineElement<IDeviceReport>
@@ -11,7 +13,6 @@ public class TemporalResampler : AsyncPositionedPipelineElement<IDeviceReport>
     public TemporalResampler() : base()
     {
     }
-
     public override PipelinePosition Position => PipelinePosition.Raw;
 
     [Property("Prediction Ratio"), DefaultPropertyValue(0.5f), ToolTip
@@ -92,127 +93,148 @@ public class TemporalResampler : AsyncPositionedPipelineElement<IDeviceReport>
     {
         if (State is not ITabletReport report || !PenIsInRange()) return;
 
-        float _t = t + (float)reportStopwatch.Elapsed.TotalSeconds * rpsAvg * m; int iAdd = (_t < -1f) ? 1 : 0;
-        report.Position = Trajectory(Math.Clamp(iAdd + _t, iAdd - 2f, iAdd + 1f) + 2f, predictPoints[3 + iAdd], predictPoints[2 + iAdd], predictPoints[1 + iAdd]);
-        report.Pressure = pressure;
+        float updateDelta = (float)reportStopwatch.Elapsed.TotalSeconds;
+        float _t = t + v * updateDelta + a * 0.5f * updateDelta * updateDelta; 
+        int iAdd = (_t < -1f) ? 1 : 0;
 
+        report.Pressure = pressure;
+        report.Position = Trajectory
+        (
+            Math.Clamp(_t, -2f, 1f) + 2f + iAdd, 
+            predictPoints[2 + iAdd], 
+            predictPoints[1 + iAdd], 
+            predictPoints[0 + iAdd]
+        );
+        
         State = report;
         OnEmit();
     }
 
     protected override void ConsumeState()
     {
-        if (State is not ITabletReport report || TabletReference == null) return;
+        if (State is not ITabletReport report || TabletReference == null)
+        {
+            OnEmit();
+            return;
+        }
 
         float consumeDelta = (float)reportStopwatch.Restart().TotalSeconds;
         var digitizer = TabletReference.Properties.Specifications.Digitizer;
         float upmm = digitizer.MaxX / digitizer.Width;
+        float followUnits = followRadius * upmm;
 
         Vector2 real = report.Position;
         pressure = report.Pressure;
         loggingEnabled &= logCount < 30;
 
-        if (!resetDebounce)
-            ResetValues(real);
+        if (!resetDebounce) ResetValues(real);
         resetDebounce = true;
 
         if (consumeDelta < 0.03f && consumeDelta > 0f)
         {
             // rps average
             rpsAvg = (rpsAvg == 0f) ? 1 / consumeDelta : rpsAvg + (1f / consumeDelta - rpsAvg) * (1f - MathF.Exp(-2f * consumeDelta));
+            float msAvg = 1000f / rpsAvg;
+            float secAvg = msAvg * 0.001f;
 
-            Vector2 smoothed = real;
             // reverse smoothing
-            if (reverseSmoothing < 1f)
-                smoothed = bE + (smoothed - bE) / reverseSmoothing;
+            Vector2 smoothed = real;
+            if (reverseSmoothing < 1f) smoothed = bE + (smoothed - bE) / reverseSmoothing;
             bE = real;
             Vector2 aE = smoothed;
 
             // smoothing
-            if (latency > 0f)
-                smoothed += (sC - smoothed) * MathF.Exp(1000 / rpsAvg / -latency);
+            float smoothingWeight = MathF.Exp(msAvg / -latency);
+            if (latency > 0f) smoothed += (sC - smoothed) * smoothingWeight;
             sC = smoothed;
-            InsertPoint(smoothedPoints, smoothed);
+            InsertAtFirst(smoothedPoints, smoothed);
+
+            // prediction
+            Vector2 predict = new Vector2();
+            for (int i = 0; i < weights.Length; i++) predict += weights[i] * smoothedPoints[i];
+
+            float predictCoe = (followUnits > 0f) ? Math.Clamp(Vector2.Distance(smoothedPoints[0], smoothedPoints[2]) / followUnits - 1f, 0, 1) : 1f;
+            predictCoe += (1f - predictCoe) * smoothingWeight;
+            predict += (smoothedPoints[0] - predict) * (1f - predictCoe * frameShift);
 
             // follow radius
-            Vector2 predict = Trajectory(2f + frameShift, smoothedPoints[3], smoothedPoints[2], smoothedPoints[1]);
-            if (followRadius > 0f)
+            Vector2 delta = predict - predictPoints[0];
+            float travel = delta.Length();
+            predict = (followUnits > 0f && travel > 0f) ? predictPoints[0] + delta * Math.Clamp(travel / followUnits - 1, 0, 1) : predict;
+            InsertAtFirst(predictPoints, predict);
+
+            // time
+            t -= 1f;
+            t += v * consumeDelta + a * 0.5f * consumeDelta * consumeDelta;
+            v += a * consumeDelta;
+            a = -2 * (t + v * secAvg) / (secAvg * secAvg);
+            a *= 1f - MathF.Exp(-100f * secAvg);
+
+            // miscellaneous
+            if (t < -2f || t > 0f) ResetValues(real);
+            if (extraFrames) UpdateState();
+            if (loggingEnabled) // data log
             {
-                Vector2 delta = predict - predictPoints[1];
-                float mag = delta.Length();
-                predict = (mag > 0f) ? predictPoints[1] + Math.Clamp((mag - Math.Max(followRadius * upmm, 0)) / mag, 0, 1) * delta : predict;
-            }
-            InsertPoint(predictPoints, predict);
+                speedAvg += (Vector2.Distance(_aE, aE) * rpsAvg - speedAvg) * MathF.Exp(-10f * consumeDelta); _aE = aE;
+                if (speedAvg * 0f != speedAvg * 0f) speedAvg = 0f;
 
-            t += consumeDelta * rpsAvg * m - 1f;
-            m -= (t + m) * 0.1f;
+                logReportAvg += rpsAvg;
+                logSpeedAvg += speedAvg;
+                logDistanceAvg += Vector2.Distance(predictPoints[1], aE);//Math.Max(Vector2.Distance(predictPoints[1], aE) - followUnits, 0);
+                logReportCount++;
 
-            if (t > -3f && t < 1f)
-            {
-                if (extraFrames)
-                    UpdateState();
-
-                if (loggingEnabled) // data log
+                if (logStopwatch.Elapsed.TotalSeconds > 1)
                 {
-                    speedAvg += (Vector2.Distance(predictPoints[2], predictPoints[1]) * rpsAvg - speedAvg) * (1f - MathF.Exp(-10f * consumeDelta));
-                    if (speedAvg * 0f != speedAvg * 0f) speedAvg = 0f;
+                    float aCount = 1f / logReportCount;
+                    logReportAvg *= aCount; logSpeedAvg *= aCount; logDistanceAvg *= aCount;
+                    double baseLatency = 0.5d / (Frequency + (extraFrames ? logReportAvg : 0d));
+                    double measuredTimeLatency = Math.Round(((1d - frameShift) / logReportAvg + baseLatency) * 1000d + latency, 2);
+                    double measuredPhysicalLatency = Math.Round((logDistanceAvg / logSpeedAvg + baseLatency) * 1000d, 2);
+                    Log.Write("TemporalResampler", "(time latency, physical latency): " + measuredTimeLatency.ToString() + "ms, " + measuredPhysicalLatency.ToString() + "ms");
 
-                    logReportMax = (logReportMax > 0d) ? Math.Min(rpsAvg, logReportMax) : rpsAvg;
-                    logSpeedMax = (logSpeedMax > 0d) ? Math.Min(speedAvg, logSpeedMax) : speedAvg;
-                    logDistanceMax = Math.Max(Vector2.DistanceSquared(predictPoints[2], aE), logDistanceMax);
-
-                    if (logStopwatch.Elapsed.TotalSeconds > 1)
-                    {
-                        logDistanceMax = Math.Sqrt(logDistanceMax);
-                        double measuredTimeLatency = Math.Round((1d - frameShift) / logReportMax * 1000d + latency, 2);
-                        double measuredPhysicalLatency = Math.Round(logDistanceMax / logSpeedMax * 1000d, 2);
-                        Log.Write("TemporalResampler", "(time latency, physical latency): " + measuredTimeLatency.ToString() + "ms, " + measuredPhysicalLatency.ToString() + "ms");
-
-                        logDistanceMax = logSpeedMax = logReportMax = 0d;
-                        logCount += 1;
-                        logStopwatch.Restart();
-                    }
+                    logCount++;
+                    logReportCount = 0;
+                    logDistanceAvg = logSpeedAvg = logReportAvg = 0d;
+                    logStopwatch.Restart();
                 }
-                else
-                    logStopwatch.Stop();
             }
             else
-                ResetValues(real);
+                logStopwatch.Stop();
         }
         else
             ResetValues(real);
     }
 
-    private void InsertPoint(Vector2[] arr, Vector2 v)
+    public void ResetValues(Vector2 p0)
     {
-        arr[4] = arr[3]; arr[3] = arr[2]; arr[2] = arr[1]; arr[1] = v;
+        smoothedPoints = Enumerable.Repeat(p0, smoothedPoints.Length).ToArray();
+        predictPoints = Enumerable.Repeat(p0, predictPoints.Length).ToArray();
+        bE = sC = _aE = p0;
+        t = -1f;
+        v = rpsAvg;
+        a = 0f;
     }
-
-    private void ResetValues(Vector2 p0)
+    public void InsertAtFirst<T>(T[] arr, T element)
     {
-        for (int i = 1; i < 4; i++)
-        {
-            smoothedPoints[i] = predictPoints[i] = p0;
-        }
-        bE = sC = p0; m = 1f; t = -1f;
+        for (int p = arr.Length - 1; p > 0; p--) arr[p] = arr[p - 1];
+        arr[0] = element;
     }
-
-    private static Vector2 Trajectory(float t, Vector2 v3, Vector2 v2, Vector2 v1) // cool formula for finding the best-fit quadratic function that passes 3 points
+    public static Vector2 Trajectory(float t, Vector2 v3, Vector2 v2, Vector2 v1) // cool formula for finding the best-fit quadratic function that passes 3 points
     {
         return v3 + (2f * v2 - v3 - (v1 + v3) * 0.5f) * t + ((v1 + v3) * 0.5f - v2) * t * t;
     }
 
     // values
-    private uint pressure;
-    private Vector2[] smoothedPoints = new Vector2[5];
-    private Vector2[] predictPoints = new Vector2[5];
-    private Vector2 bE, sC;
-    private float t = -1f, m = 1f, rpsAvg, speedAvg;
-    private bool resetDebounce;
-    private HPETDeltaStopwatch reportStopwatch = new HPETDeltaStopwatch();
-    private HPETDeltaStopwatch logStopwatch = new HPETDeltaStopwatch();
-    private double logDistanceMax, logSpeedMax, logReportMax;
-    private int logCount;
+    public uint pressure;
+    public static float[] weights = { 2.4f, -1.2f, -0.8f, 0.6f }; // magical numbers
+    public Vector2[] smoothedPoints = new Vector2[weights.Length], predictPoints = new Vector2[4];
+    public Vector2 bE, sC, _aE, tP;
+    public float t = -1f, v = 1f, a = 0f, rpsAvg = 200f, speedAvg;
+    public bool resetDebounce;
+    public HPETDeltaStopwatch reportStopwatch = new HPETDeltaStopwatch();
+    public HPETDeltaStopwatch logStopwatch = new HPETDeltaStopwatch();
+    public double logDistanceAvg, logSpeedAvg, logReportAvg;
+    public int logCount, logReportCount;
 
     [TabletReference]
     public TabletReference? TabletReference { get; set; }
