@@ -16,6 +16,7 @@ Improves cursor clarity for higher refresh rate monitors with minimal latency. I
     Range: 0.0 - 1.0
 
     Determines the time distance the filter predicts inputs for each tablet update.
+    Prediction brought to you by Kalman filtering.
     0.0 == [slower] 0% predicted, one rps of latency
     0.5 == [balanced] 50% predicted, half rps of latency
     1.0 == [overkill] 100% predicted, no added latency (works best with some smoothing)
@@ -40,7 +41,8 @@ Improves cursor clarity for higher refresh rate monitors with minimal latency. I
     Default: 1
     Range: 0.0 - 1.0
     
-    Removes hardware smoothing, fine-tuned this to your tablet. Follow the guide given in the Reconstructor filter wiki (linked below). 
+    Removes hardware smoothing, fine-tuned this to your tablet. 
+    Follow the guide given in the Reconstructor filter wiki (linked below). 
     1.0 == no effect
     lower == removes more hardware smoothing
 
