@@ -60,7 +60,7 @@ public class TemporalResampler : AsyncPositionedPipelineElement<IDeviceReport>
         "Default: 1.0\n" +
         "Range: 0.0 - 1.0\n\n" +
 
-        "Removes hardware smoothing, fine-tuned this to your tablet.\nFollow the guide given in the Reconstructor filter wiki.\n" +
+        "Removes hardware smoothing, fine-tuned this to your tablet.\nPrediction brought to you by Kalman filtering.\n" +
         "1.0 == no effect\n" +
         "lower == removes more hardware smoothing"
     )]
@@ -93,13 +93,13 @@ public class TemporalResampler : AsyncPositionedPipelineElement<IDeviceReport>
 
     protected override void UpdateState()
     {
-        if (State is not ITabletReport report || !PenIsInRange()) return;
+        if (State is not IAbsolutePositionReport report || !PenIsInRange()) return;
+        if (State is ITabletReport tabletReport) tabletReport.Pressure = pressure;
 
         float updateDelta = (float)reportStopwatch.Elapsed.TotalSeconds;
         float _t = t + v * updateDelta + a * 0.5f * updateDelta * updateDelta;
         int iAdd = (_t < -1f) ? 1 : 0;
 
-        report.Pressure = pressure;
         report.Position = Trajectory
         (
             Math.Clamp(_t + iAdd, -2f, 1f) + 2f,
@@ -107,6 +107,8 @@ public class TemporalResampler : AsyncPositionedPipelineElement<IDeviceReport>
             predictPoints[1 + iAdd],
             predictPoints[0 + iAdd]
         );
+         
+        if (devMode) devOutput += $"u{devStopwatch.Elapsed.TotalSeconds},{report.Position.X},{report.Position.Y}";
 
         State = report;
         OnEmit();
@@ -114,11 +116,13 @@ public class TemporalResampler : AsyncPositionedPipelineElement<IDeviceReport>
 
     protected override void ConsumeState()
     {
-        if (State is not ITabletReport report || TabletReference == null)
+        if (State is not IAbsolutePositionReport report || TabletReference == null)
         {
             OnEmit();
             return;
         }
+
+        if (State is ITabletReport tabletReport) pressure = tabletReport.Pressure;
 
         float consumeDelta = (float)reportStopwatch.Restart().TotalSeconds;
         if (consumeDelta > 0.03f || consumeDelta < 0.0001f)
@@ -131,7 +135,6 @@ public class TemporalResampler : AsyncPositionedPipelineElement<IDeviceReport>
         float upmm = digitizer.MaxX / digitizer.Width;
         float followUnits = followRadius * upmm;
         Vector2 real = report.Position;
-        pressure = report.Pressure;
 
         // rps average
         rpsAvg += (1f / consumeDelta - rpsAvg) * (1f - MathF.Exp(-2f * consumeDelta));
@@ -143,6 +146,7 @@ public class TemporalResampler : AsyncPositionedPipelineElement<IDeviceReport>
         if (reverseSmoothing < 1f) smoothed = bE + (smoothed - bE) / reverseSmoothing;
         bE = real;
         Vector2 aE = smoothed;
+        if (devMode) devOutput += $"c{devStopwatch.Elapsed.TotalSeconds},{smoothed.X},{smoothed.Y}";
 
         // smoothing
         float smoothingWeight = MathF.Exp(msAvg / -latency);
@@ -179,7 +183,7 @@ public class TemporalResampler : AsyncPositionedPipelineElement<IDeviceReport>
 
             logReportAvg += rpsAvg;
             logSpeedAvg += speedAvg;
-            logDistanceAvg += Vector2.Distance(predictPoints[1], aE);//Math.Max(Vector2.Distance(predictPoints[1], aE) - followUnits, 0);
+            logDistanceAvg += Vector2.Distance(Trajectory(t + 3f, predictPoints[3], predictPoints[2], predictPoints[1]), aE);
             logReportCount++;
 
             if (logStopwatch.Elapsed.TotalSeconds > 1)
@@ -199,6 +203,13 @@ public class TemporalResampler : AsyncPositionedPipelineElement<IDeviceReport>
         }
         else
             logStopwatch.Stop();
+
+        if (devMode && devStopwatch.Elapsed.TotalSeconds > 30) {
+            Log.Write("TemporalResampler", devOutput);
+            devStopwatch.Reset();
+            devMode = false;
+        }
+
     }
 
     public void ResetValues(Vector2 p0)
@@ -263,6 +274,10 @@ public class TemporalResampler : AsyncPositionedPipelineElement<IDeviceReport>
     public HPETDeltaStopwatch logStopwatch = new HPETDeltaStopwatch();
     public double logDistanceAvg, logSpeedAvg, logReportAvg;
     public int logCount = 30, logReportCount;
+
+    public bool devMode = false;
+    public string devOutput;
+    public HPETDeltaStopwatch devStopwatch = new HPETDeltaStopwatch();
 
     [TabletReference]
     public TabletReference? TabletReference { get; set; }
