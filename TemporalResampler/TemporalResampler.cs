@@ -1,4 +1,4 @@
-using OpenTabletDriver.Plugin;
+﻿using OpenTabletDriver.Plugin;
 using OpenTabletDriver.Plugin.Attributes;
 using OpenTabletDriver.Plugin.Output;
 using OpenTabletDriver.Plugin.Tablet;
