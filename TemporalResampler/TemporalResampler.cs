@@ -1,20 +1,17 @@
-﻿using OpenTabletDriver.Plugin;
+using OpenTabletDriver.Plugin;
 using OpenTabletDriver.Plugin.Attributes;
 using OpenTabletDriver.Plugin.Output;
 using OpenTabletDriver.Plugin.Tablet;
 using OpenTabletDriver.Plugin.Timing;
 using System.Numerics;
-using MathNet.Filtering.Kalman;
-using MathNet.Numerics.LinearAlgebra;
-using System.Diagnostics;
 
 [PluginName("Temporal Resampler"), DeviceHub()]
 public class TemporalResampler : AsyncPositionedPipelineElement<IDeviceReport>
 {
-
     public TemporalResampler() : base()
     {
     }
+
     public override PipelinePosition Position => PipelinePosition.Raw;
 
     [Property("Prediction Ratio"), DefaultPropertyValue(0.5f), ToolTip
@@ -22,11 +19,13 @@ public class TemporalResampler : AsyncPositionedPipelineElement<IDeviceReport>
         "Default: 0.5\n" +
         "Range: 0.0 - 1.0\n\n" +
 
-        "Determines the time distance the filter predicts inputs for each tablet update.\nPrediction brought to you by Kalman filtering.\n" +
+        "Determines the time distance the filter predicts inputs for each tablet update.\n" +
+        "Prediction brought to you by Kalman filtering.\n" +
         "0.0 == [slower] 0% predicted, one rps of latency\n" +
         "0.5 == [balanced] 50% predicted, half rps of latency\n" +
         "1.0 == [overkill] 100% predicted, no added latency (works best with some smoothing)"
     )]
+
     public float frameShift
     {
         set => _frameShift = Math.Clamp(value, 0, 1);
@@ -36,10 +35,11 @@ public class TemporalResampler : AsyncPositionedPipelineElement<IDeviceReport>
 
     [Property("Follow Radius"), DefaultPropertyValue(0f), Unit("mm"), ToolTip
     (
-        "Default: 0.0\n\n" +
+        "Default: 0.0mm\n\n" +
 
         "Radius of cursor trailing distance in millimeters."
     )]
+
     public float followRadius { set; get; }
 
     [Property("Smoothing Latency"), DefaultPropertyValue(0f), Unit("ms"), ToolTip
@@ -60,13 +60,13 @@ public class TemporalResampler : AsyncPositionedPipelineElement<IDeviceReport>
         "Default: 1.0\n" +
         "Range: 0.0 - 1.0\n\n" +
 
-        "Removes hardware smoothing, fine-tuned this to your tablet.\nPrediction brought to you by Kalman filtering.\n" +
+        "Removes hardware smoothing, fine-tuned this to your tablet.\n" +
         "1.0 == no effect\n" +
         "lower == removes more hardware smoothing"
     )]
     public float reverseSmoothing
     {
-        set => _reverseSmoothing = Math.Clamp(value, 0, 1);
+        set => _reverseSmoothing = Math.Clamp(value, 0.001f, 1);
         get => _reverseSmoothing;
     }
     public float _reverseSmoothing;
@@ -93,22 +93,33 @@ public class TemporalResampler : AsyncPositionedPipelineElement<IDeviceReport>
 
     protected override void UpdateState()
     {
-        if (State is not IAbsolutePositionReport report || !PenIsInRange()) return;
-        if (State is ITabletReport tabletReport) tabletReport.Pressure = pressure;
+        if (State is not IAbsolutePositionReport report || !PenIsInRange())
+            return;
 
-        float updateDelta = (float)reportStopwatch.Elapsed.TotalSeconds;
-        float _t = t + v * updateDelta + a * 0.5f * updateDelta * updateDelta;
-        int iAdd = (_t < -1f) ? 1 : 0;
+        // time
+        float t = 1 + (float)(runningStopwatch.Elapsed - latestReport).TotalSeconds * rpsAvg;
+        t = Math.Clamp(t, 0, 3);
 
+        // interp position
         report.Position = Trajectory
         (
-            Math.Clamp(_t + iAdd, -2f, 1f) + 2f,
-            predictPoints[2 + iAdd],
-            predictPoints[1 + iAdd],
-            predictPoints[0 + iAdd]
+            t,
+            (Vector2)stablePoints[2][0],
+            (Vector2)stablePoints[1][0],
+            (Vector2)stablePoints[0][0]
         );
-         
-        if (devMode) devOutput += $"u{devStopwatch.Elapsed.TotalSeconds},{report.Position.X},{report.Position.Y}";
+
+        // interp pressure
+        if (State is ITabletReport tabletReport)
+        {
+            int tShift = (t < 1) ? 1 : 0;
+            double pressure0 = (uint)stablePoints[1 + tShift][1];
+            double pressure1 = (uint)stablePoints[0 + tShift][1];
+            tabletReport.Pressure = (uint)(pressure0 + (pressure1 - pressure0) * Math.Clamp(t + tShift - 1, 0, 1));
+        }
+
+        if (devMode)
+            devOutput += $"u{devStopwatch.Elapsed.TotalSeconds},{report.Position.X},{report.Position.Y}";
 
         State = report;
         OnEmit();
@@ -122,142 +133,179 @@ public class TemporalResampler : AsyncPositionedPipelineElement<IDeviceReport>
             return;
         }
 
-        if (State is ITabletReport tabletReport) pressure = tabletReport.Pressure;
-
-        float consumeDelta = (float)reportStopwatch.Restart().TotalSeconds;
-        if (consumeDelta > 0.03f || consumeDelta < 0.0001f)
-        {
-            ResetValues(report.Position);
-            return;
-        }
-
+        uint pressure = 0;
         var digitizer = TabletReference.Properties.Specifications.Digitizer;
         float upmm = digitizer.MaxX / digitizer.Width;
         float followUnits = followRadius * upmm;
+        float consumeDelta = (float)reportStopwatch.Restart().TotalSeconds;
+
+        if (State is ITabletReport tabletReport)
+            pressure = tabletReport.Pressure;
+
+        if (consumeDelta > 0.03f || consumeDelta < 0.0001f)
+        {
+            ResetValues(report.Position, pressure);
+            return;
+        }
+
         Vector2 real = report.Position;
+        if (devMode)
+            devOutput += $"c{devStopwatch.Elapsed.TotalSeconds},{real.X},{real.Y}";
 
         // rps average
         rpsAvg += (1f / consumeDelta - rpsAvg) * (1f - MathF.Exp(-2f * consumeDelta));
-        float msAvg = 1000f / rpsAvg;
-        float secAvg = msAvg * 0.001f;
+        float secAvg = 1f / rpsAvg;
+        float msAvg = 1000f * secAvg;
 
         // reverse smoothing
         Vector2 smoothed = real;
-        if (reverseSmoothing < 1f) smoothed = bE + (smoothed - bE) / reverseSmoothing;
+        if (reverseSmoothing < 1f)
+            smoothed = bE + (smoothed - bE) / reverseSmoothing;
         bE = real;
         Vector2 aE = smoothed;
-        if (devMode) devOutput += $"c{devStopwatch.Elapsed.TotalSeconds},{smoothed.X},{smoothed.Y}";
 
         // smoothing
         float smoothingWeight = MathF.Exp(msAvg / -latency);
-        if (latency > 0f) smoothed += (sC - smoothed) * smoothingWeight;
+        if (latency > 0f) 
+        {
+            smoothed += (sC - smoothed) * smoothingWeight;
+            sPressure += (sPressure - pressure) * smoothingWeight;
+        }
         sC = smoothed;
         InsertAtFirst(smoothedPoints, smoothed);
 
         // prediction
-        Vector2 predict = kf.Update(smoothedPoints[0], secAvg);
-        float predictCoe = (followUnits > 0f) ? Math.Clamp(Vector2.Distance(smoothedPoints[0], smoothedPoints[2]) / followUnits - 1f, 0, 1) : 1f;
-        predictCoe += (1f - predictCoe) * smoothingWeight;
-        predict += (smoothedPoints[0] - predict) * (1f - predictCoe * frameShift);
+        Vector2 predict = smoothedPoints[0];
+        if (frameShift > 0f) 
+        {
+            predict = kf.Update(smoothedPoints[0], secAvg);
+            float predictCoe = (followUnits > 0f) ? Math.Clamp(Vector2.Distance(smoothedPoints[0], smoothedPoints[2]) / followUnits - 1f, 0, 1) : 1f;
+            predictCoe += (1f - predictCoe) * smoothingWeight;
+            predict += (smoothedPoints[0] - predict) * (1f - predictCoe * frameShift);
+        }
 
         // follow radius
-        Vector2 delta = predict - predictPoints[0];
+        Vector2 delta = predict - bP;
         float travel = delta.Length();
-        predict = (followUnits > 0f && travel > 0f) ? predictPoints[0] + delta * Math.Clamp(travel / followUnits - 1, 0, 1) : predict;
-        InsertAtFirst(predictPoints, predict);
+        if (followUnits > 0f && travel > 0f)
+            predict = bP + delta * Math.Clamp(travel / followUnits - 1, 0, 1);
 
-        // time
-        t--;
-        t += v * consumeDelta + a * 0.5f * consumeDelta * consumeDelta;
-        v += a * consumeDelta;
-        a = -2 * (t + v * secAvg) / (secAvg * secAvg);
-        a *= 1f - MathF.Exp(-100f * secAvg);
+        // variance compensate
+        tOffset += secAvg - consumeDelta;
+        tOffset *= MathF.Exp(-5f * consumeDelta);
+        tOffset = Math.Clamp(tOffset, -secAvg, secAvg);
+        latestReport = runningStopwatch.Elapsed + TimeSpan.FromSeconds(tOffset);
+        InsertAtFirst(stablePoints, new object[] { predict, (uint)sPressure });
 
         // miscellaneous
-        if (t < -2f || t > 0f) ResetValues(real);
-        if (extraFrames) UpdateState();
         if (loggingEnabled && logCount > 0) // data log
         {
-            speedAvg += (Vector2.Distance(_aE, aE) * rpsAvg - speedAvg) * MathF.Exp(-10f * consumeDelta); _aE = aE;
-            if (speedAvg * 0f != speedAvg * 0f) speedAvg = 0f;
+            float measuredSpeed = Vector2.Distance(_aE, aE) * rpsAvg; _aE = aE;
+            if (measuredSpeed * 0f != measuredSpeed * 0f)
+                measuredSpeed = 0f;
 
             logReportAvg += rpsAvg;
-            logSpeedAvg += speedAvg;
-            logDistanceAvg += Vector2.Distance(Trajectory(t + 3f, predictPoints[3], predictPoints[2], predictPoints[1]), aE);
+            logErrorAvg += Math.Abs(tOffset);
+            logSpeedAvg += measuredSpeed;
+            logDistanceAvg += Vector2.Distance(bP, aE);
             logReportCount++;
 
             if (logStopwatch.Elapsed.TotalSeconds > 1)
             {
                 float aCount = 1f / logReportCount;
-                logReportAvg *= aCount; logSpeedAvg *= aCount; logDistanceAvg *= aCount;
-                double baseLatency = 0.5d / (Frequency + (extraFrames ? logReportAvg : 0d));
+                logReportAvg *= aCount;
+                logErrorAvg *= aCount;
+                logSpeedAvg *= aCount;
+                logDistanceAvg *= aCount;
+
+                double baseLatency = 0.5d / (Frequency + (extraFrames ? logReportAvg : 0d)) + logErrorAvg;
                 double measuredTimeLatency = Math.Round(((1d - frameShift) / logReportAvg + baseLatency) * 1000d + latency, 2);
                 double measuredPhysicalLatency = Math.Round((logDistanceAvg / logSpeedAvg + baseLatency) * 1000d, 2);
-                Log.Write("TemporalResampler", "(time latency, physical latency): " + measuredTimeLatency.ToString() + "ms, " + measuredPhysicalLatency.ToString() + "ms");
+                double measuredErrorLatency = Math.Round(logErrorAvg * 1000d, 2);
+                Log.Write("TemporalResampler", "(time latency, physical latency, error latency): " + measuredTimeLatency.ToString() + "ms, " + measuredPhysicalLatency.ToString() + "ms, " + measuredErrorLatency + "ms");
 
                 logCount--;
                 logReportCount = 0;
-                logDistanceAvg = logSpeedAvg = logReportAvg = 0d;
+                logDistanceAvg = logSpeedAvg = logReportAvg = logErrorAvg = 0d;
                 logStopwatch.Restart();
             }
         }
         else
             logStopwatch.Stop();
 
-        if (devMode && devStopwatch.Elapsed.TotalSeconds > 30) {
+        if (devMode && devStopwatch.Elapsed.TotalSeconds > 30)
+        {
             Log.Write("TemporalResampler", devOutput);
             devStopwatch.Reset();
             devMode = false;
         }
 
+        bP = predict;
+
+        // wire consume state to update state
+        if (extraFrames)
+            UpdateState();
     }
 
-    public void ResetValues(Vector2 p0)
+    void ResetValues(Vector2 p0, uint pressure)
     {
-        kf = new KalmanFilterVector2(p0, 1d, 0.000001d);
+        kf = new KalmanVector2(4, p0);
         smoothedPoints = Enumerable.Repeat(p0, smoothedPoints.Length).ToArray();
-        predictPoints = Enumerable.Repeat(p0, predictPoints.Length).ToArray();
-        pressure = 0;
-        bE = sC = _aE = p0;
-        t = -1f;
-        v = rpsAvg;
-        a = 0f;
+        stablePoints = Enumerable.Repeat(new object[] { p0, pressure }, stablePoints.Length).ToArray();
+        latestReport = runningStopwatch.Elapsed;
+        tOffset = 0;
+        bE = bP = sC = _aE = p0;
+        sPressure = pressure;
     }
-    public void InsertAtFirst<T>(T[] arr, T element)
+
+    void InsertAtFirst<T>(T[] arr, T element)
     {
         for (int p = arr.Length - 1; p > 0; p--) arr[p] = arr[p - 1];
         arr[0] = element;
     }
 
-    public static Vector2 Trajectory(float t, Vector2 v3, Vector2 v2, Vector2 v1)
+    // trajectory
+    private static readonly int steps = 256;
+    private static readonly float dt = 1f / steps;
+    private float[] arcArr = new float[steps];
+    private float arcTar = 0;
+    private Vector2 _v1, _v2, _v3;
+    private int _floor;
+    Vector2 Trajectory(float t, Vector2 v3, Vector2 v2, Vector2 v1)
     {
         var mid = 0.5f * (v1 + v3);
         var accel = 2f * (mid - v2);
         var vel = 2f * v2 - v3 - mid;
-
-        // spacing points evenly using integrals
-        if (accel != Vector2.Zero) {
-            int steps = 128;
-            float dt = 1f / steps;
-            float floor = (float)Math.Floor(t);
+        
+        // if there is acceleration, then start spacing points evenly using integrals
+        if (Vector2.Dot(accel, accel) > 0.001f)
+        {
+            int floor = (int)Math.Floor(t);
             var _vel = vel + accel * floor;
 
-            float arcTar = 0;
-            float[] arcArr = new float[steps];
-            for (int _t = 0; _t < steps; _t++)
+            // if any of the inputs have changed, recalculate arcArr
+            if ((_floor != floor) || (_v1 != v1) || (_v2 != v2) || (_v3 != v3))
             {
-                arcArr[_t] = arcTar;
-                arcTar += (_vel + _t * dt * accel).Length();
+                _v1 = v1;
+                _v2 = v2;
+                _v3 = v3;
+                _floor = floor;
+                arcTar = 0;
+
+                for (int _t = 0; _t < steps; _t++)
+                {
+                    arcArr[_t] = arcTar;
+                    arcTar += (_vel + _t * dt * accel).Length();
+                }
             }
-            arcTar *= t - floor;
+
+            float _arcTar = arcTar * (t - floor);
 
             for (int _t = 0; _t < steps; _t++)
             {
-                if (arcArr[_t] > arcTar)
-                {
-                    t = _t * dt + floor;
-                    break;
-                }
+                if (arcArr[_t] < _arcTar) continue;
+                t = _t * dt + floor;
+                break;
             }
         }
 
@@ -265,70 +313,255 @@ public class TemporalResampler : AsyncPositionedPipelineElement<IDeviceReport>
     }
 
     //values
-    public uint pressure;
-    public KalmanFilterVector2 kf;
-    public Vector2[] smoothedPoints = new Vector2[3], predictPoints = new Vector2[4];
-    public Vector2 bE, sC, _aE, tP;
-    public float t = -1f, v = 1f, a = 0f, rpsAvg = 200f, speedAvg;
-    public HPETDeltaStopwatch reportStopwatch = new HPETDeltaStopwatch(false);
-    public HPETDeltaStopwatch logStopwatch = new HPETDeltaStopwatch();
-    public double logDistanceAvg, logSpeedAvg, logReportAvg;
-    public int logCount = 30, logReportCount;
+    KalmanVector2 kf;
+    Vector2[] smoothedPoints = new Vector2[3];
+    object[][] stablePoints = new object[3][];
+    Vector2 bE, bP, sC, _aE;
+    double sPressure;
+    TimeSpan latestReport = TimeSpan.Zero;
+    float rpsAvg = 200f, tOffset;
+    HPETDeltaStopwatch reportStopwatch = new HPETDeltaStopwatch(false);
+    HPETDeltaStopwatch runningStopwatch = new HPETDeltaStopwatch(true);
+    HPETDeltaStopwatch logStopwatch = new HPETDeltaStopwatch(true);
+    double logDistanceAvg, logSpeedAvg, logReportAvg, logErrorAvg;
+    int logCount = 30, logReportCount;
 
-    public bool devMode = false;
-    public string devOutput;
-    public HPETDeltaStopwatch devStopwatch = new HPETDeltaStopwatch();
+    bool devMode = false;
+    string devOutput;
+    HPETDeltaStopwatch devStopwatch = new HPETDeltaStopwatch(true);
 
     [TabletReference]
     public TabletReference? TabletReference { get; set; }
 }
-public class KalmanFilterVector2
+
+public class KalmanFilter
 {
-    public DiscreteKalmanFilter kfx, kfy;
-    private MatrixBuilder<double> matrixBuilder = Matrix<double>.Build;
-    private Matrix<double> H, R, Q;
-    private Vector2 lastPosition;
+    private readonly double[,] scale_const;
+    private readonly int states;
+    private double lastMeasuredPos;
 
-    public KalmanFilterVector2(Vector2 initial, double proccessNoise, double measurementNoise)
+    private Matrix x;
+    private Matrix P;
+    private Matrix Q;
+    private Matrix R;
+    private Matrix H;
+
+    public KalmanFilter(uint statesNumber, double initialPosition)
     {
-        lastPosition = initial;
-        var x0 = matrixBuilder.DenseOfArray(new double[,] { { (double)initial.X }, { 0 }, { 0 }, { 0 } });
-        var y0 = matrixBuilder.DenseOfArray(new double[,] { { (double)initial.Y }, { 0 }, { 0 }, { 0 } });
+        states = (int)statesNumber + 2;
 
-        H = matrixBuilder.DenseDiagonal(2, 4, 1);
-        Q = matrixBuilder.DenseDiagonal(4, 4, proccessNoise);
-        R = matrixBuilder.DenseDiagonal(2, 2, measurementNoise);
+        scale_const = new double[states, states];
+        for (int i = 0; i < states; i++)
+        {
+            int fac_n = 1;
+            int fac_i = 0;
+            for (int j = i; j < states; j++)
+            {
+                scale_const[i, j] = 1d / fac_n;
+                fac_i++;
+                fac_n *= fac_i;
+            }
+        }
 
-        var p0 = matrixBuilder.DenseDiagonal(4, 4, 10000);
-        kfx = new DiscreteKalmanFilter(x0, p0);
-        kfy = new DiscreteKalmanFilter(y0, p0);
+        lastMeasuredPos = initialPosition;
+        double[,] xArr = new double[states, 1];
+        xArr[0, 0] = initialPosition;
+
+        x = Matrix.Build.DenseOfArray(xArr);
+        P = Matrix.Build.DenseIdentity(states);
+        Q = Matrix.Build.DenseIdentity(states) * 1;
+        R = Matrix.Build.DenseDiagonal(2, 2, 0.0001);
+        H = Matrix.Build.DenseDiagonal(2, states, 1);
     }
 
-    public Vector2 Update(Vector2 position, double deltaTime)
+    public double Update(double measuredPos, double dt)
     {
-        Vector2 velocity = (position - lastPosition) / (float)deltaTime;
-        velocity = (velocity * 0 == velocity * 0) ? velocity : Vector2.Zero;
-        lastPosition = position;
+        double measuredVel = (measuredPos - lastMeasuredPos) / dt;
+        lastMeasuredPos = measuredPos;
 
-        var zX = matrixBuilder.DenseOfArray(new double[,] { { (double)position.X }, { (double)velocity.X } });
-        var zY = matrixBuilder.DenseOfArray(new double[,] { { (double)position.Y }, { (double)velocity.Y } });
+        var z = Matrix.Build.DenseOfArray(new double[,] { { measuredPos }, { measuredVel } });
 
-        kfx.Update(zX, H, R);
-        kfy.Update(zY, H, R);
-
-        double dt2 = deltaTime * deltaTime / 2.0;
-        double dt3 = deltaTime * deltaTime * deltaTime / 6.0;
-        var F = matrixBuilder.DenseOfArray(new double[,]
+        double[,] Aarr = new double[states, states];
+        for (int i = 0; i < states; i++) 
         {
-            { 1, deltaTime, dt2, dt3 },
-            { 0, 1, deltaTime, dt2 },
-            { 0, 0, 1, deltaTime },
-            { 0, 0, 0, 1 }
-        });
+            double time_pow = 1;
+            for (int j = i; j < states; j++) 
+            {
+                Aarr[i, j] = time_pow * scale_const[i, j];
+                time_pow *= dt;
+            } 
+        }
 
-        kfx.Predict(F, Q);
-        kfy.Predict(F, Q);
+        /*
+            vvvvvvvvvvv
+        4 states should look like this
+        double[,] Aarr = new double[,] {
+            {          1,          dt^1/1!,    dt^2/2!,    dt^3/3!     },
+            {          0,          1,          dt^1/1!,    dt^2/2!     },
+            {          0,          0,          1,          dt^1/1!     },
+            {          0,          0,          0,          1           }
+        }
+        */
 
-        return new Vector2((float)kfx.State[0, 0], (float)kfy.State[0, 0]);
+        var A = Matrix.Build.DenseOfArray(Aarr);
+
+        x = A * x;
+        P = A * P * A.Transpose() + Q;
+
+        var S = H * P * H.Transpose() + R;
+        var K = P * H.Transpose() * S.Inverse();
+
+        x = x + K * (z - H * x);
+        P = (Matrix.Build.DenseIdentity(states) - K * H) * P;
+
+        return (A * x)[0, 0];
+    }
+}
+
+public class KalmanVector2
+{
+    private KalmanFilter xFilter;
+    private KalmanFilter yFilter;
+
+    public KalmanVector2(uint states, Vector2 initialPosition)
+    {
+        xFilter = new KalmanFilter(states, initialPosition.X);
+        yFilter = new KalmanFilter(states, initialPosition.Y);
+    }
+
+    public Vector2 Update(Vector2 measuredPosition, float dt)
+    {
+        float xState = (float)xFilter.Update(measuredPosition.X, dt);
+        float yState = (float)yFilter.Update(measuredPosition.Y, dt);
+        return new Vector2(xState, yState);
+    }
+}
+
+public class Matrix
+{
+    internal readonly double[,] data;
+
+    public Matrix(double[,] data)
+    {
+        this.data = data;
+    }
+
+    public int Rows => data.GetLength(0);
+    public int Cols => data.GetLength(1);
+
+    public double this[int i, int j]
+    {
+        get => data[i, j];
+        set => data[i, j] = value;
+    }
+
+    public static Matrix operator +(Matrix a, Matrix b)
+    {
+        var result = new double[a.Rows, a.Cols];
+        for (int i = 0; i < a.Rows; i++)
+            for (int j = 0; j < a.Cols; j++)
+                result[i, j] = a[i, j] + b[i, j];
+        return new Matrix(result);
+    }
+
+    public static Matrix operator -(Matrix a, Matrix b)
+    {
+        var result = new double[a.Rows, a.Cols];
+        for (int i = 0; i < a.Rows; i++)
+            for (int j = 0; j < a.Cols; j++)
+                result[i, j] = a[i, j] - b[i, j];
+        return new Matrix(result);
+    }
+
+    public static Matrix operator *(Matrix a, Matrix b)
+    {
+        var result = new double[a.Rows, b.Cols];
+        for (int i = 0; i < a.Rows; i++)
+            for (int j = 0; j < b.Cols; j++)
+                for (int k = 0; k < a.Cols; k++)
+                    result[i, j] += a[i, k] * b[k, j];
+        return new Matrix(result);
+    }
+
+    public static Matrix operator *(Matrix a, double scalar)
+    {
+        var result = new double[a.Rows, a.Cols];
+        for (int i = 0; i < a.Rows; i++)
+            for (int j = 0; j < a.Cols; j++)
+                result[i, j] = a[i, j] * scalar;
+        return new Matrix(result);
+    }
+
+    public Matrix Transpose()
+    {
+        var result = new double[Cols, Rows];
+        for (int i = 0; i < Rows; i++)
+            for (int j = 0; j < Cols; j++)
+                result[j, i] = data[i, j];
+        return new Matrix(result);
+    }
+
+    public Matrix Inverse()
+    {
+        if (Rows != Cols) throw new InvalidOperationException("Matrix must be square to invert.");
+
+        int n = Rows;
+        var result = new double[n, n];
+        var identity = Build.DenseIdentity(n).data;
+        var copy = (double[,])data.Clone();
+
+        for (int i = 0; i < n; i++)
+            for (int j = 0; j < n; j++)
+                result[i, j] = identity[i, j];
+
+        for (int i = 0; i < n; i++)
+        {
+            double diag = copy[i, i];
+            if (diag == 0) throw new InvalidOperationException("Matrix is singular.");
+
+            for (int j = 0; j < n; j++)
+            {
+                copy[i, j] /= diag;
+                result[i, j] /= diag;
+            }
+
+            for (int k = 0; k < n; k++)
+            {
+                if (k == i) continue;
+                double factor = copy[k, i];
+                for (int j = 0; j < n; j++)
+                {
+                    copy[k, j] -= factor * copy[i, j];
+                    result[k, j] -= factor * result[i, j];
+                }
+            }
+        }
+
+        return new Matrix(result);
+    }
+
+    public static class Build
+    {
+        public static Matrix DenseOfArray(double[,] data) => new Matrix(data);
+
+        public static Matrix DenseIdentity(int size)
+        {
+            var result = new double[size, size];
+            for (int i = 0; i < size; i++) result[i, i] = 1;
+            return new Matrix(result);
+        }
+
+        public static Matrix DenseDiagonal(int rows, int cols, Func<int, double> diagFunc)
+        {
+            var result = new double[rows, cols];
+            for (int i = 0; i < Math.Min(rows, cols); i++)
+                result[i, i] = diagFunc(i);
+            return new Matrix(result);
+        }
+
+        public static Matrix DenseDiagonal(int rows, int cols, double value)
+        {
+            return DenseDiagonal(rows, cols, _ => value);
+        }
     }
 }
