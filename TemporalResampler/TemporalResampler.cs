@@ -133,18 +133,18 @@ public class TemporalResampler : AsyncPositionedPipelineElement<IDeviceReport>
             return;
         }
 
-        uint pressure = 0;
         var digitizer = TabletReference.Properties.Specifications.Digitizer;
         float upmm = digitizer.MaxX / digitizer.Width;
         float followUnits = followRadius * upmm;
         float consumeDelta = (float)reportStopwatch.Restart().TotalSeconds;
+        float pressure = 0;
 
         if (State is ITabletReport tabletReport)
             pressure = tabletReport.Pressure;
 
         if (consumeDelta > 0.03f || consumeDelta < 0.0001f)
         {
-            ResetValues(report.Position, pressure);
+            ResetValues(report.Position, (uint)pressure);
             return;
         }
 
@@ -169,9 +169,11 @@ public class TemporalResampler : AsyncPositionedPipelineElement<IDeviceReport>
         if (latency > 0f) 
         {
             smoothed += (sC - smoothed) * smoothingWeight;
-            sPressure += (sPressure - pressure) * smoothingWeight;
+            pressure += (sPressure - pressure) * smoothingWeight;
         }
         sC = smoothed;
+        sPressure = pressure;
+        uint uPressure = (uint)Math.Max(Math.Round(pressure), 0);
         InsertAtFirst(smoothedPoints, smoothed);
 
         // prediction
@@ -195,7 +197,7 @@ public class TemporalResampler : AsyncPositionedPipelineElement<IDeviceReport>
         tOffset *= MathF.Exp(-5f * consumeDelta);
         tOffset = Math.Clamp(tOffset, -secAvg, secAvg);
         latestReport = runningStopwatch.Elapsed + TimeSpan.FromSeconds(tOffset);
-        InsertAtFirst(stablePoints, new object[] { predict, (uint)sPressure });
+        InsertAtFirst(stablePoints, new object[] { predict, uPressure });
 
         // miscellaneous
         if (loggingEnabled && logCount > 0) // data log
@@ -317,8 +319,8 @@ public class TemporalResampler : AsyncPositionedPipelineElement<IDeviceReport>
     Vector2[] smoothedPoints = new Vector2[3];
     object[][] stablePoints = new object[3][];
     Vector2 bE, bP, sC, _aE;
-    double sPressure;
     TimeSpan latestReport = TimeSpan.Zero;
+    float sPressure;
     float rpsAvg = 200f, tOffset;
     HPETDeltaStopwatch reportStopwatch = new HPETDeltaStopwatch(false);
     HPETDeltaStopwatch runningStopwatch = new HPETDeltaStopwatch(true);
